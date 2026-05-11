@@ -1,0 +1,91 @@
+//@version=5
+indicator("价格/SMA 相对强度 (A/B) 进阶版", overlay=true)
+
+// --- 0. 用户自定义输入参数 ---
+// 创建天数和透明度的变量框
+smaLength = input.int(30, title="SMA 计算周期 (天数)", minval=1, step=1)
+bgTransparency = input.int(30, title="背景透明度 (0-100，越大越透明)", minval=0, maxval=100, step=5)
+
+// --- 1. 市场识别与指数选择 ---
+// 利用货币类型或交易所前缀判断市场
+isSG = syminfo.currency == "SGD" or syminfo.prefix == "SGX"
+
+// 新加坡股使用 TVC:STI（海峡时报指数），美股或其他默认使用 SPY
+indexSymbol = isSG ? "TVC:STI" : "SPY"
+
+// --- 2. 个股数据计算 (A) ---
+// 计算个股的动态 SMA
+stockSma = ta.sma(close, smaLength)
+
+// A: 当前K线收盘价 / 个股 SMA
+resultA = close / stockSma
+
+// --- 3. 指数数据计算 (B) ---
+// 获取基准指数的收盘价和动态 SMA，确保周期与主图一致
+[indexClose, indexSma] = request.security(indexSymbol, timeframe.period, [close, ta.sma(close, smaLength)])
+
+// B: 指数当前收盘价 / 指数 SMA
+resultB = indexClose / indexSma
+
+// --- 4. 比较与视觉渲染 ---
+// 判断 A 是否大于 B
+conditionAB = resultA > resultB
+
+// 使用用户自定义的透明度 (bgTransparency) 填充浅黄色背景，直接覆盖在主图 K 线上
+bgcolor(conditionAB ? color.new(color.yellow, bgTransparency) : na, title="相对强度 A>B 背景高亮")
+
+// --- 5. 在图表上指示当前使用的基准指数 ---
+// 创建一个位于右上角的单格表格 (仅在最后根K线更新以节省资源)
+var table benchmarkTable = table.new(position.top_right, 1, 1, bgcolor = color.new(color.black, 70), frame_color = color.gray, frame_width = 1)
+
+if barstate.islast
+    // 在表格中填入文本，动态显示当前调用的指数名称
+    table.cell(benchmarkTable, 0, 0, text="当前基准对标: " + indexSymbol, text_color=color.white, text_size=size.normal)
+
+// =====================================================================
+// 选股引擎 AA1：紧凑平台跳空突破 (Tight Base Gap-Up)
+// =====================================================================
+
+// --- 1. AA1 参数设置 ---
+// 允许你微调盘整天数和容错率
+aa1_lookback   = input.int(3,     title="AA1: 盘整K线数量 (2-4)", minval=2, maxval=4)
+aa1_range_pct  = input.float(1.0, title="AA1: 高/低点波动容差 (%)", step=0.1)
+aa1_body_pct   = input.float(3.0, title="AA1: 最大K线实体限制 (%)", step=0.5)
+
+// --- 2. 均线多头排列 ---
+aa1_sma20 = ta.sma(close, 20)
+aa1_sma50 = ta.sma(close, 50)
+aa1_trend_ok = aa1_sma20 > aa1_sma50
+
+// --- 3. 当日爆发条件 (当前 K 线) ---
+aa1_is_green = close > open
+// 跳空高开：开盘价高于昨天的最高价 (如果想放宽条件，可改为 open > close[1])
+aa1_gap_up = open > high[1] 
+
+// --- 4. 前期紧凑盘整条件 (过去 2-4 根 K 线) ---
+// 注意：我们在所有 ta.highest / ta.lowest 后面加上 [1]，代表排除了“今天”这根爆发K线，只看昨天的历史
+
+// A. 最高价的波动范围在 1% 以内
+aa1_max_h = ta.highest(high, aa1_lookback)[1]
+aa1_min_h = ta.lowest(high, aa1_lookback)[1]
+aa1_high_tight = ((aa1_max_h - aa1_min_h) / aa1_min_h * 100) <= aa1_range_pct
+
+// B. 最低价的波动范围在 1% 以内
+aa1_max_l = ta.highest(low, aa1_lookback)[1]
+aa1_min_l = ta.lowest(low, aa1_lookback)[1]
+aa1_low_tight = ((aa1_max_l - aa1_min_l) / aa1_min_l * 100) <= aa1_range_pct
+
+// C. 所有 K 线的实体都很小 (< 3%)
+// 计算方式：计算过去 N 根 K 线中，实体最大的一根是否仍小于 3%
+aa1_body_size = math.abs(close - open) / open * 100
+aa1_small_bodies = ta.highest(aa1_body_size, aa1_lookback)[1] <= aa1_body_pct
+
+// --- 5. 综合触发信号 ---
+condition_AA1 = aa1_trend_ok and aa1_is_green and aa1_gap_up and aa1_high_tight and aa1_low_tight and aa1_small_bodies
+
+// --- 6. 视觉标记 ---
+// 在图表下方打印紫色标签
+plotshape(condition_AA1, style=shape.labelup, location=location.belowbar, color=color.purple, textcolor=color.white, size=size.small, title="AA1 Breakout", text="AA1")
+
+// --- 7. Alert 警报设置 (可选) ---
+alertcondition(condition_AA1, title="🚨 触发 AA1 突破", message="{{ticker}} 触发 AA1: 平台跳空突破！")
