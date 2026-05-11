@@ -1,0 +1,106 @@
+//@version=5
+indicator("OBV Short/Long SMA Buy Sell Signals with Long SMA Slope Ban", shorttitle="OBV SMA Signals", overlay=false, scale=scale.right)
+
+// === Inputs ===
+showOBV = input.bool(true, title="Show OBV")
+
+showShortSMA = input.bool(true, title="Show Short SMA")
+shortSMALength = input.int(title="Short SMA Length", defval=20, minval=1)
+
+showLongSMA = input.bool(true, title="Show Long SMA")
+longSMALength = input.int(title="Long SMA Length", defval=100, minval=1)
+
+showBackground = input.bool(true, title="Show Bull/Bear Background")
+showSignals = input.bool(true, title="Show Buy/Sell Signals")
+showBanMarkers = input.bool(false, title="Show Buy/Sell Ban Markers")
+
+confirmDays = input.float(title="Confirmation Days", defval=1.0, minval=0.1, step=0.1)
+
+// === OBV Calculation ===
+obv = ta.cum(close > close[1] ? volume : close < close[1] ? -volume : 0)
+
+// === OBV SMAs ===
+obvShortSMA = ta.sma(obv, shortSMALength)
+obvLongSMA = ta.sma(obv, longSMALength)
+
+// === SMA Slopes ===
+shortSMASlope = obvShortSMA - obvShortSMA[1]
+longSMASlope = obvLongSMA - obvLongSMA[1]
+
+// === Main Conditions ===
+obvAboveBoth = obv > obvShortSMA and obv > obvLongSMA
+obvBelowBoth = obv < obvShortSMA and obv < obvLongSMA
+
+// === Ban Rules ===
+// Buy ban: Long SMA slope is below 0
+buyBan = longSMASlope < 0
+
+// Sell ban: Long SMA slope is above 0
+sellBan = longSMASlope > 0
+
+// === Time Confirmation ===
+confirmMilliseconds = confirmDays * 24 * 60 * 60 * 1000
+
+var int aboveStartTime = na
+var int belowStartTime = na
+
+var bool buyTriggered = false
+var bool sellTriggered = false
+
+// === Track Above Condition ===
+if obvAboveBoth
+    if na(aboveStartTime)
+        aboveStartTime := time
+    belowStartTime := na
+    sellTriggered := false
+else
+    aboveStartTime := na
+    buyTriggered := false
+
+// === Track Below Condition ===
+if obvBelowBoth
+    if na(belowStartTime)
+        belowStartTime := time
+    aboveStartTime := na
+    buyTriggered := false
+else
+    belowStartTime := na
+    sellTriggered := false
+
+// === Signal Logic with Ban Rules ===
+buyConfirmed = obvAboveBoth and not na(aboveStartTime) and time - aboveStartTime > confirmMilliseconds
+sellConfirmed = obvBelowBoth and not na(belowStartTime) and time - belowStartTime > confirmMilliseconds
+
+buySignal = buyConfirmed and not buyTriggered and not buyBan
+sellSignal = sellConfirmed and not sellTriggered and not sellBan
+
+if buySignal
+    buyTriggered := true
+
+if sellSignal
+    sellTriggered := true
+
+// === Plot OBV ===
+plot(showOBV ? obv : na, title="OBV", color=color.blue, linewidth=2)
+
+// === Plot SMAs ===
+plot(showShortSMA ? obvShortSMA : na, title="OBV Short SMA", color=color.orange, linewidth=2)
+plot(showLongSMA ? obvLongSMA : na, title="OBV Long SMA", color=color.aqua, linewidth=2)
+
+// === Buy/Sell Signals ===
+plotshape(showSignals and buySignal ? obv : na, title="Buy Signal", style=shape.labelup, location=location.absolute, color=color.green, text="BUY", textcolor=color.white, size=size.small)
+
+plotshape(showSignals and sellSignal ? obv : na, title="Sell Signal", style=shape.labeldown, location=location.absolute, color=color.red, text="SELL", textcolor=color.white, size=size.small)
+
+// === Optional Ban Markers ===
+plotshape(showBanMarkers and buyBan ? obvLongSMA : na, title="Buy Ban", style=shape.xcross, location=location.absolute, color=color.red, text="BUY BAN", textcolor=color.red, size=size.tiny)
+
+plotshape(showBanMarkers and sellBan ? obvLongSMA : na, title="Sell Ban", style=shape.xcross, location=location.absolute, color=color.green, text="SELL BAN", textcolor=color.green, size=size.tiny)
+
+// === Background ===
+bgcolor(showBackground ? obvAboveBoth ? color.new(color.green, 90) : obvBelowBoth ? color.new(color.red, 90) : na : na)
+
+// === Alerts ===
+alertcondition(buySignal, title="OBV Buy Signal", message="OBV stayed above both Short SMA and Long SMA for more than the confirmation period, and Long SMA slope is not below 0.")
+
+alertcondition(sellSignal, title="OBV Sell Signal", message="OBV stayed below both Short SMA and Long SMA for more than the confirmation period, and Long SMA slope is not above 0.")

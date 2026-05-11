@@ -1,0 +1,180 @@
+//@version=6
+indicator("KY A+B Buy Sell Signal 2Green Rising Buy New Sell", overlay=true, max_labels_count=500)
+
+plot(close, title="Hidden Output", display=display.none)
+
+// ==========================
+// 1. Inputs
+// ==========================
+bSma20Len = input.int(20, "B 20SMA Length", minval=1)
+bSma50Len = input.int(50, "B 50SMA Length", minval=1)
+bSlopeLookback = input.int(5, "B Slope Lookback", minval=1, maxval=100)
+bSlopeSmoothLen = input.int(1, "B Slope Smoothing", minval=1, maxval=50)
+bCompareMode = input.string("Slope Compare", "B Compare Mode", options=["Slope Compare", "Price SMA Compare"])
+
+aRsSmaLength = input.int(30, "A Relative Strength Base SMA Length", minval=1)
+aDeltaMaLength = input.int(9, "A Delta MA Length", minval=1)
+
+showSmaLines = input.bool(true, "Show 20SMA / 50SMA / 200SMA")
+show200SMA = input.bool(true, "Show 200SMA")
+showSignals = input.bool(true, "Show Buy / Sell Signals")
+showTable = input.bool(true, "Show Status Table")
+showDebugMarks = input.bool(false, "Show Debug Marks")
+
+// ==========================
+// 2. B Indicator Calculation
+// ==========================
+bSma20 = ta.sma(close, bSma20Len)
+bSma50 = ta.sma(close, bSma50Len)
+sma200 = ta.sma(close, 200)
+
+bRawSlope20 = (bSma20 - bSma20[bSlopeLookback]) / bSma20[bSlopeLookback] * 100
+bRawSlope50 = (bSma50 - bSma50[bSlopeLookback]) / bSma50[bSlopeLookback] * 100
+
+bSlope20 = ta.sma(bRawSlope20, bSlopeSmoothLen)
+bSlope50 = ta.sma(bRawSlope50, bSlopeSmoothLen)
+
+bBullSlope = bSlope20 > bSlope50
+bBearSlope = bSlope20 < bSlope50
+
+bBullPrice = bSma20 > bSma50
+bBearPrice = bSma20 < bSma50
+
+bBull = bCompareMode == "Slope Compare" ? bBullSlope : bBullPrice
+bBear = bCompareMode == "Slope Compare" ? bBearSlope : bBearPrice
+
+// ==========================
+// 3. A Indicator Calculation
+// ==========================
+isSG = syminfo.currency == "SGD" or syminfo.prefix == "SGX"
+indexSymbol = isSG ? "TVC:STI" : "SPY"
+
+stockSma = ta.sma(close, aRsSmaLength)
+resultA = close / stockSma
+
+indexClose = request.security(indexSymbol, timeframe.period, close)
+indexSma = request.security(indexSymbol, timeframe.period, ta.sma(close, aRsSmaLength))
+
+resultB = indexClose / indexSma
+deltaAB = resultA - resultB
+deltaMa = ta.sma(deltaAB, aDeltaMaLength)
+
+aGreen = deltaAB >= 0
+aRed = deltaAB < 0
+aJustTurnRed = deltaAB < 0 and deltaAB[1] >= 0
+
+// Buy rule: Delta histogram continuously green for 2 days and 2nd green bar is taller than 1st green bar
+aTwoDayGreenRising = deltaAB >= 0 and deltaAB[1] >= 0 and deltaAB > deltaAB[1]
+
+// ==========================
+// 4. Candle Color Rules
+// ==========================
+greenCandle = close > open
+redCandle = close < open
+
+// ==========================
+// 5. New Sell Logic Components
+// ==========================
+
+// Sell rule 1: Delta histogram is below its moving average
+deltaBelowMa = deltaAB < deltaMa
+
+// Sell rule 2: 20SMA slope is still above 50SMA slope, but the gap is reducing
+slopeGap = bSlope20 - bSlope50
+slopeGapReducing = bSlope20 > bSlope50 and slopeGap < slopeGap[1]
+
+// ==========================
+// 6. Buy / Sell Logic
+// ==========================
+buyCondition = bBull and aTwoDayGreenRising and greenCandle
+sellCondition = deltaBelowMa and slopeGapReducing and redCandle
+
+var bool inPosition = false
+var bool buyBan = false
+var bool sellBan = false
+
+buySignal = buyCondition and not buyBan and not inPosition
+sellSignal = sellCondition and not sellBan and inPosition
+
+if buySignal
+    inPosition := true
+    buyBan := true
+    sellBan := false
+
+if sellSignal
+    inPosition := false
+    sellBan := true
+    buyBan := false
+
+// ==========================
+// 7. Plot SMA Lines
+// ==========================
+sma20Color = bSlope20 >= 0 ? color.lime : color.red
+sma50Color = bSlope50 >= 0 ? color.aqua : color.orange
+
+plot(showSmaLines ? bSma20 : na, title="20SMA", color=sma20Color, linewidth=2)
+plot(showSmaLines ? bSma50 : na, title="50SMA", color=sma50Color, linewidth=2)
+plot(showSmaLines and show200SMA ? sma200 : na, title="200SMA", color=color.white, linewidth=3)
+
+// ==========================
+// 8. Plot Buy / Sell Signals
+// ==========================
+plotshape(showSignals and buySignal, title="KY BUY", style=shape.triangleup, location=location.belowbar, color=color.yellow, size=size.small, text="BUY", textcolor=color.black)
+plotshape(showSignals and sellSignal, title="KY SELL", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL", textcolor=color.white)
+
+// ==========================
+// 9. Debug Marks
+// ==========================
+plotshape(showDebugMarks and bBull, title="B Bull", style=shape.circle, location=location.belowbar, color=color.new(color.green, 0), size=size.tiny, text="B+")
+plotshape(showDebugMarks and bBear, title="B Bear", style=shape.circle, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny, text="B-")
+plotshape(showDebugMarks and aGreen, title="A Green", style=shape.square, location=location.belowbar, color=color.new(color.lime, 0), size=size.tiny, text="A+")
+plotshape(showDebugMarks and aTwoDayGreenRising, title="A 2 Day Rising Green", style=shape.diamond, location=location.belowbar, color=color.new(color.green, 0), size=size.tiny, text="A2")
+plotshape(showDebugMarks and deltaBelowMa, title="Delta Below MA", style=shape.square, location=location.abovebar, color=color.new(color.purple, 0), size=size.tiny, text="D<MA")
+plotshape(showDebugMarks and slopeGapReducing, title="Slope Gap Reducing", style=shape.circle, location=location.abovebar, color=color.new(color.orange, 0), size=size.tiny, text="Gdn")
+plotshape(showDebugMarks and greenCandle, title="Green Candle", style=shape.circle, location=location.belowbar, color=color.new(color.green, 40), size=size.tiny, text="GC")
+plotshape(showDebugMarks and redCandle, title="Red Candle", style=shape.circle, location=location.abovebar, color=color.new(color.red, 40), size=size.tiny, text="RC")
+
+// ==========================
+// 10. Status Table
+// ==========================
+var table statusTable = table.new(position.top_right, 2, 16, border_width=1)
+
+if showTable and barstate.islast
+    table.cell(statusTable, 0, 0, "Item", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 0, "Status", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 0, 1, "B Compare Mode", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 1, bCompareMode, text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 0, 2, "B 20SMA Slope", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 2, str.tostring(bSlope20, "#.###") + "%", text_color=color.white, bgcolor=bSlope20 >= 0 ? color.green : color.red)
+    table.cell(statusTable, 0, 3, "B 50SMA Slope", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 3, str.tostring(bSlope50, "#.###") + "%", text_color=color.white, bgcolor=bSlope50 >= 0 ? color.green : color.red)
+    table.cell(statusTable, 0, 4, "B Bull", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 4, bBull ? "YES" : "NO", text_color=color.white, bgcolor=bBull ? color.green : color.red)
+    table.cell(statusTable, 0, 5, "B Bear", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 5, bBear ? "YES" : "NO", text_color=color.white, bgcolor=bBear ? color.red : color.green)
+    table.cell(statusTable, 0, 6, "Slope Gap", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 6, str.tostring(slopeGap, "#.###"), text_color=color.white, bgcolor=slopeGap >= 0 ? color.green : color.red)
+    table.cell(statusTable, 0, 7, "Gap Reducing", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 7, slopeGapReducing ? "YES" : "NO", text_color=color.white, bgcolor=slopeGapReducing ? color.orange : color.gray)
+    table.cell(statusTable, 0, 8, "A Delta", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 8, str.tostring(deltaAB, "#.####"), text_color=color.white, bgcolor=aGreen ? color.green : color.red)
+    table.cell(statusTable, 0, 9, "Delta MA", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 9, str.tostring(deltaMa, "#.####"), text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 0, 10, "Delta < MA", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 10, deltaBelowMa ? "YES" : "NO", text_color=color.white, bgcolor=deltaBelowMa ? color.purple : color.gray)
+    table.cell(statusTable, 0, 11, "A 2 Green Rising", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 11, aTwoDayGreenRising ? "YES" : "NO", text_color=color.white, bgcolor=aTwoDayGreenRising ? color.green : color.gray)
+    table.cell(statusTable, 0, 12, "Candle Color", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 12, greenCandle ? "GREEN" : redCandle ? "RED" : "DOJI", text_color=color.white, bgcolor=greenCandle ? color.green : redCandle ? color.red : color.gray)
+    table.cell(statusTable, 0, 13, "Position", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 13, inPosition ? "IN" : "OUT", text_color=color.white, bgcolor=inPosition ? color.green : color.gray)
+    table.cell(statusTable, 0, 14, "Buy Ban", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 14, buyBan ? "ON" : "OFF", text_color=color.white, bgcolor=buyBan ? color.red : color.green)
+    table.cell(statusTable, 0, 15, "Sell Ban", text_color=color.white, bgcolor=color.black)
+    table.cell(statusTable, 1, 15, sellBan ? "ON" : "OFF", text_color=color.white, bgcolor=sellBan ? color.red : color.green)
+
+// ==========================
+// 11. Alerts
+// ==========================
+alertcondition(buySignal, title="KY BUY Signal", message="KY BUY: B bullish, A histogram 2-day green rising, and candle is green")
+alertcondition(sellSignal, title="KY SELL Signal", message="KY SELL: Delta below MA, 20SMA slope above 50SMA slope but gap reducing, and candle is red")
