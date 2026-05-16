@@ -1,0 +1,86 @@
+//@version=6
+indicator("Resistance Zone Sell", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+grpZone  = "Resistance Zone"
+lookback = input.int(10,    "Lookback Days",                        minval=3, maxval=30, group=grpZone)
+highPct  = input.float(1.0, "Top 3 highs within N% of today high", minval=0.1, step=0.1, group=grpZone)
+lowPct   = input.float(1.0, "Today + last 3 lows range within N%", minval=0.1, step=0.1, group=grpZone)
+
+grpSMA   = "SMA Settings"
+smaLen   = input.int(20, "SMA Length", minval=1, group=grpSMA)
+
+grpGreen = "Three Green Candles Box"
+openTol  = input.float(0.3, "2nd/3rd open vs prev close tolerance (%)", minval=0.0, step=0.1, group=grpGreen) / 100
+breakTol = input.float(1.0, "Nearly broken tolerance (%)",              minval=0.0, step=0.1, group=grpGreen) / 100
+
+// ── Compute ───────────────────────────────────────────────────────────────────
+sma20 = ta.sma(close, smaLen)
+plot(sma20, "SMA", color=color.red, linewidth=2)
+
+// ══ PATTERN 1: Resistance Zone Lines ══════════════════════════════════════════
+var float h1 = na
+var float h2 = na
+var float h3 = na
+
+h1 := -1.0
+h2 := -1.0
+h3 := -1.0
+
+for i = 0 to lookback - 1
+    if high[i] >= h1
+        h3 := h2
+        h2 := h1
+        h1 := high[i]
+    else if high[i] >= h2
+        h3 := h2
+        h2 := high[i]
+    else if high[i] >= h3
+        h3 := high[i]
+
+highThreshold  = high * highPct / 100
+withinHighZone = math.abs(h1 - high) <= highThreshold and
+                 math.abs(h2 - high) <= highThreshold and
+                 math.abs(h3 - high) <= highThreshold
+
+minLow        = math.min(low, math.min(low[1], math.min(low[2], low[3])))
+maxLow        = math.max(low, math.max(low[1], math.max(low[2], low[3])))
+lowRange      = (maxLow - minLow) / minLow * 100
+withinLowZone = lowRange <= lowPct
+
+aboveSMA   = close > sma20
+sellSignal = withinHighZone and withinLowZone and aboveSMA
+
+if sellSignal
+    line.new(x1=bar_index - 6, y1=high, x2=bar_index,     y2=high, color=color.new(#FFB6C1, 0), width=4, style=line.style_solid)
+    line.new(x1=bar_index,     y1=high, x2=bar_index + 6, y2=high, color=color.new(#ADD8E6, 0), width=4, style=line.style_solid)
+
+alertcondition(sellSignal, title="Resistance Zone Sell", message="Resistance zone sell on {{ticker}} @ {{close}}")
+
+// ══ PATTERN 2: Three Green Candles Box ════════════════════════════════════════
+// [3]=oldest  [2]=middle  [1]=most recent green  [0]=today testing
+
+c1Green     = close[3] > open[3]
+c2Green     = close[2] > open[2]
+c3Green     = close[1] > open[1]
+c2OpenValid = open[2] >= close[3] * (1 - openTol)   // 2nd opens at/above 1st close
+c3OpenValid = open[1] >= close[2] * (1 - openTol)   // 3rd opens at/above 2nd close
+threeGreen  = c1Green and c2Green and c3Green and c2OpenValid and c3OpenValid
+
+// Today's low tests the first green candle's open (nearly breaking support)
+nearlyBroken     = low <= open[3] * (1 + breakTol)
+threeGreenSignal = threeGreen and nearlyBroken
+
+// Box top/bottom from the 3 green candles
+boxTop    = math.max(high[3], math.max(high[2], high[1]))
+boxBottom = math.min(low[3],  math.min(low[2],  low[1]))
+
+if threeGreenSignal
+    box.new(left=bar_index - 3, top=boxTop, right=bar_index - 1, bottom=boxBottom,
+            border_color=color.new(color.yellow, 20), border_width=2,
+            bgcolor=color.new(color.yellow, 85))
+    label.new(x=bar_index, y=high + ta.atr(14) * 1.5,
+              text="↓", style=label.style_none,
+              textcolor=color.blue, size=size.huge)
+
+alertcondition(threeGreenSignal, title="Three Green Box Test", message="3-green box nearly broken on {{ticker}} @ {{close}}")
