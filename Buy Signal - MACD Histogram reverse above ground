@@ -1,0 +1,84 @@
+//@version=6
+indicator("MACD Green Peak Buy", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+grpMACD  = "MACD Settings"
+macdFast = input.int(12, "Fast Length",   minval=1, group=grpMACD)
+macdSlow = input.int(26, "Slow Length",   minval=1, group=grpMACD)
+macdSig  = input.int(9,  "Signal Length", minval=1, group=grpMACD)
+
+grpSMA   = "SMA Settings"
+smaLen   = input.int(20, "SMA Length", minval=1, group=grpSMA)
+
+// ── Compute ───────────────────────────────────────────────────────────────────
+[macdLine, signalLine, hist] = ta.macd(close, macdFast, macdSlow, macdSig)
+sma10 = ta.sma(close, 10)
+sma20 = ta.sma(close, smaLen)
+sma50 = ta.sma(close, 50)
+
+plot(sma20, "SMA", color=color.red, linewidth=2)
+
+// ── Condition 1: All 3 green, middle (day -1) has smallest absolute value ─────
+allGreen    = hist[0] > 0 and hist[1] > 0 and hist[2] > 0
+midSmallAbs = math.abs(hist[1]) < math.abs(hist[0]) and math.abs(hist[1]) < math.abs(hist[2])
+macdPattern = allGreen and midSmallAbs
+
+// ── Condition 2: MACD line above zero ─────────────────────────────────────────
+macdAboveZero = macdLine > 0
+
+// ── Condition 3: Today close is above the highs of both prior 2 candles ───────
+closeAboveAllHighs = close > high[1] and close > high[2]
+
+// ── Condition 4: At least one red (corrective) candle in last 4 bars ──────────
+hasRedCandle = (close < open) or (close[1] < open[1]) or (close[2] < open[2]) or (close[3] < open[3])
+
+// ── Condition 5: Histogram did NOT continuously decline for more than 4 days ──
+notLongDecline = not (hist[1] < hist[2] and hist[2] < hist[3] and hist[3] < hist[4] and hist[4] < hist[5])
+
+// ── Condition 6: SMA20 must be above 90% of SMA50 ─────────────────────────────
+sma20AboveSma50 = sma20 >= sma50 * 0.9
+
+// ── Condition 7: Candle median price not more than 10% above SMA10 ────────────
+medianPrice = (high + low) / 2
+notExtended = medianPrice <= sma10 * 1.1
+
+// ── Buy Signal ────────────────────────────────────────────────────────────────
+buySignal = macdPattern and macdAboveZero and closeAboveAllHighs and hasRedCandle and notLongDecline and sma20AboveSma50 and notExtended
+
+// ── Label position: arrow on top, line hangs below connected ──────────────────
+atr14   = ta.atr(14)
+arrowY  = low - atr14 * 0.8
+lineBtm = arrowY - atr14 * 0.6
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+h0  = str.tostring(hist[0],           "#.####")
+h1  = str.tostring(hist[1],           "#.####")
+h2  = str.tostring(hist[2],           "#.####")
+a0  = str.tostring(math.abs(hist[0]), "#.####")
+a1  = str.tostring(math.abs(hist[1]), "#.####")
+a2  = str.tostring(math.abs(hist[2]), "#.####")
+c0  = str.tostring(close,             "#.####")
+h1p = str.tostring(high[1],          "#.####")
+h2p = str.tostring(high[2],          "#.####")
+ml  = str.tostring(macdLine,          "#.####")
+
+tip = "BUY SIGNAL\n" +
+      "MACD Histogram (all green, middle smallest abs):\n" +
+      "  2d ago:          hist=" + h2 + "  abs=" + a2 + "\n" +
+      "  Yesterday (mid): hist=" + h1 + "  abs=" + a1 + " (smallest)\n" +
+      "  Today:           hist=" + h0 + "  abs=" + a0 + "\n" +
+      "MACD line above zero: " + ml + "\n" +
+      "Today close (" + c0 + ") above all 3-day highs:\n" +
+      "  High 1d ago=" + h1p + "  High 2d ago=" + h2p + ": YES\n" +
+      "At least one red corrective candle in last 4 bars: YES\n" +
+      "Histogram not continuously declining >4 days prior: YES\n" +
+      "SMA20=" + str.tostring(sma20,"#.####") + " >= 90% of SMA50=" + str.tostring(sma50,"#.####") + ": YES\n" +
+      "Median price=" + str.tostring(medianPrice,"#.####") + " within 10% of SMA10=" + str.tostring(sma10,"#.####") + ": YES"
+
+// ── Draw: arrow on top, line hangs below and connects ────────────────────────
+if buySignal
+    label.new(x=bar_index, y=arrowY, text="▲", style=label.style_none, textcolor=color.yellow, size=size.large, tooltip=tip)
+    line.new(x1=bar_index, y1=arrowY, x2=bar_index, y2=lineBtm, color=color.yellow, width=2)
+
+// ── Alert ─────────────────────────────────────────────────────────────────────
+alertcondition(buySignal, title="MACD Green Peak Buy", message="MACD green peak buy on {{ticker}} @ {{close}}")
