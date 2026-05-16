@@ -1,0 +1,133 @@
+//@version=6
+indicator("SMA Stack Bearish Sell Signal", overlay=true, max_labels_count=500)
+
+// ── SMA Inputs ────────────────────────────────────────────────────────────────
+grpSMA = "SMA Settings"
+show1  = input.bool(true,  "Show SMA #1",  inline="1",  group=grpSMA)
+len1   = input.int(10,  "",  minval=1, inline="1",  group=grpSMA)
+src1   = input.source(close, "", inline="1",  group=grpSMA)
+
+show2  = input.bool(true,  "Show SMA #2",  inline="2",  group=grpSMA)
+len2   = input.int(20,  "",  minval=1, inline="2",  group=grpSMA)
+src2   = input.source(close, "", inline="2",  group=grpSMA)
+
+show3  = input.bool(true,  "Show SMA #3",  inline="3",  group=grpSMA)
+len3   = input.int(50,  "",  minval=1, inline="3",  group=grpSMA)
+src3   = input.source(close, "", inline="3",  group=grpSMA)
+
+show4  = input.bool(false, "Show SMA #4",  inline="4",  group=grpSMA)
+len4   = input.int(150, "",  minval=1, inline="4",  group=grpSMA)
+src4   = input.source(close, "", inline="4",  group=grpSMA)
+
+show5  = input.bool(false, "Show SMA #5",  inline="5",  group=grpSMA)
+len5   = input.int(200, "",  minval=1, inline="5",  group=grpSMA)
+src5   = input.source(close, "", inline="5",  group=grpSMA)
+
+show6  = input.bool(false, "Show SMA #6",  inline="6",  group=grpSMA)
+len6   = input.int(250, "",  minval=1, inline="6",  group=grpSMA)
+src6   = input.source(close, "", inline="6",  group=grpSMA)
+
+show7  = input.bool(false, "Show SMA #7",  inline="7",  group=grpSMA)
+len7   = input.int(300, "",  minval=1, inline="7",  group=grpSMA)
+src7   = input.source(close, "", inline="7",  group=grpSMA)
+
+show8  = input.bool(false, "Show SMA #8",  inline="8",  group=grpSMA)
+len8   = input.int(400, "",  minval=1, inline="8",  group=grpSMA)
+src8   = input.source(close, "", inline="8",  group=grpSMA)
+
+show9  = input.bool(false, "Show SMA #9",  inline="9",  group=grpSMA)
+len9   = input.int(500, "",  minval=1, inline="9",  group=grpSMA)
+src9   = input.source(close, "", inline="9",  group=grpSMA)
+
+show10 = input.bool(false, "Show SMA #10", inline="10", group=grpSMA)
+len10  = input.int(600, "",  minval=1, inline="10", group=grpSMA)
+src10  = input.source(close, "", inline="10", group=grpSMA)
+
+grpGap = "Minimum SMA Gap (%)"
+gapPct = input.float(0.05, "Min gap between each SMA (%)", minval=0.0, step=0.01, group=grpGap) / 100
+
+// ── Compute SMAs ──────────────────────────────────────────────────────────────
+out1  = ta.sma(src1,  len1)
+out2  = ta.sma(src2,  len2)
+out3  = ta.sma(src3,  len3)
+out4  = ta.sma(src4,  len4)
+out5  = ta.sma(src5,  len5)
+out6  = ta.sma(src6,  len6)
+out7  = ta.sma(src7,  len7)
+out8  = ta.sma(src8,  len8)
+out9  = ta.sma(src9,  len9)
+out10 = ta.sma(src10, len10)
+
+// ── Plot SMAs ─────────────────────────────────────────────────────────────────
+plot(show1  ? out1  : na, "SMA #1",  color=close >= out1  ? color.blue  : color.orange)
+plot(show2  ? out2  : na, "SMA #2",  color=color.red, linewidth=2)
+plot(show3  ? out3  : na, "SMA #3",  color=color.white, linewidth=4)
+plot(show4  ? out4  : na, "SMA #4",  color=close >= out4  ? color.blue  : color.orange)
+plot(show5  ? out5  : na, "SMA #5",  color=close >= out5  ? color.blue  : color.orange, linewidth=4)
+plot(show6  ? out6  : na, "SMA #6",  color=close >= out6  ? color.green : color.red)
+plot(show7  ? out7  : na, "SMA #7",  color=close >= out7  ? color.green : color.red,    linewidth=2)
+plot(show8  ? out8  : na, "SMA #8",  color=close >= out8  ? color.green : color.red)
+plot(show9  ? out9  : na, "SMA #9",  color=close >= out9  ? color.green : color.red)
+plot(show10 ? out10 : na, "SMA #10", color=close >= out10 ? color.green : color.red,    linewidth=4)
+
+// ── SMA Stack ─────────────────────────────────────────────────────────────────
+g = 1 + gapPct
+pairOk(a, aOn, b, bOn) =>
+    not aOn or not bOn or a >= b * g
+
+smaStack = pairOk(out1, show1, out2, show2) and
+           pairOk(out2, show2, out3, show3) and
+           pairOk(out3, show3, out4, show4) and
+           pairOk(out4, show4, out5, show5) and
+           pairOk(out5, show5, out6, show6) and
+           pairOk(out6, show6, out7, show7) and
+           pairOk(out7, show7, out8, show8) and
+           pairOk(out8, show8, out9, show9) and
+           pairOk(out9, show9, out10, show10)
+
+// ── Candle Conditions ─────────────────────────────────────────────────────────
+prevGreen     = close[1] > open[1]
+currRed       = close < open
+higherOpen    = open  > close[1]
+lowerClose    = close < close[1]
+openAboveSMAs = open > out1 and open > out2
+prev3DayHigh  = high[1] > high[2] and high[1] > high[3]
+bearishCandle = prevGreen and currRed and higherOpen and lowerClose and openAboveSMAs and prev3DayHigh
+
+sellSignal = smaStack and bearishCandle
+
+// ── Label position ────────────────────────────────────────────────────────────
+atrOffset = ta.atr(14) * 0.3
+labelY    = high + atrOffset
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+s1 = str.tostring(out1,         "#.####")
+s2 = str.tostring(out2,         "#.####")
+s3 = str.tostring(out3,         "#.####")
+pC = str.tostring(close[1],     "#.####")
+cO = str.tostring(open,         "#.####")
+cC = str.tostring(close,        "#.####")
+gp = str.tostring(gapPct * 100, "#.##")
+
+tip = "SELL SIGNAL\n" +
+      "SMA Stack in order (min gap " + gp + "%):\n" +
+      "SMA" + str.tostring(len1) + "=" + s1 + "  " +
+      "SMA" + str.tostring(len2) + "=" + s2 + "  " +
+      "SMA" + str.tostring(len3) + "=" + s3 + "\n" +
+      "Green candle 3-day new high: YES\n" +
+      "Red candle open above SMA10 and SMA20: YES\n" +
+      "Prev green close: " + pC + "\n" +
+      "Today open: " + cO + " (gapped above prev green close)\n" +
+      "Today close: " + cC + " (closed back below prev green close)\n" +
+      "Signal: Rejection -- gap-up open failed to hold,\n" +
+      "closed beneath yesterday's green close."
+
+// ── Label ─────────────────────────────────────────────────────────────────────
+if sellSignal
+    label.new(x=bar_index, y=labelY, text="SELL", style=label.style_label_down, color=color.navy, textcolor=color.white, size=size.normal, tooltip=tip)
+
+// ── Bar highlight ─────────────────────────────────────────────────────────────
+bgcolor(sellSignal ? color.new(color.red, 88) : na, title="Signal Bar Highlight")
+
+// ── Alert ─────────────────────────────────────────────────────────────────────
+alertcondition(sellSignal, title="SMA Stack Bearish Sell", message="Sell signal on {{ticker}} @ {{close}}")
