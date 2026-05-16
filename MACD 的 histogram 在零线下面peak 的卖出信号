@@ -1,0 +1,67 @@
+//@version=6
+indicator("MACD Red Peak + Price New Low Sell", overlay=true, max_labels_count=500)
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+grpMACD  = "MACD Settings"
+macdFast = input.int(12, "Fast Length",   minval=1, group=grpMACD)
+macdSlow = input.int(26, "Slow Length",   minval=1, group=grpMACD)
+macdSig  = input.int(9,  "Signal Length", minval=1, group=grpMACD)
+
+grpSMA   = "SMA Settings"
+smaLen   = input.int(20, "SMA Length (open must be above)", minval=1, group=grpSMA)
+
+// ── Compute ───────────────────────────────────────────────────────────────────
+[macdLine, signalLine, hist] = ta.macd(close, macdFast, macdSlow, macdSig)
+sma20 = ta.sma(close, smaLen)
+
+plot(sma20, "SMA", color=color.red, linewidth=2)
+
+// ── Condition 1: All 3 red, middle (day -1) has smallest absolute value ────────
+allRed      = hist[0] < 0 and hist[1] < 0 and hist[2] < 0
+midSmallAbs = math.abs(hist[1]) < math.abs(hist[0]) and math.abs(hist[1]) < math.abs(hist[2])
+macdPattern = allRed and midSmallAbs
+
+// ── Condition 2: Candle crosses down through SMA (open above, close below) ─────
+openAboveSMA = open > sma20
+crossDown20  = close < sma20
+
+// ── Condition 3: Today close is below the lows of both prior 2 candles ─────────
+closeBelowAllLows = close < low[1] and close < low[2]
+
+// ── Sell Signal ───────────────────────────────────────────────────────────────
+sellSignal = macdPattern and openAboveSMA and crossDown20 and closeBelowAllLows
+
+// ── Label position ────────────────────────────────────────────────────────────
+atrOffset = ta.atr(14) * 0.3
+labelY    = high + atrOffset
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+h0 = str.tostring(hist[0],           "#.####")
+h1 = str.tostring(hist[1],           "#.####")
+h2 = str.tostring(hist[2],           "#.####")
+a0 = str.tostring(math.abs(hist[0]), "#.####")
+a1 = str.tostring(math.abs(hist[1]), "#.####")
+a2 = str.tostring(math.abs(hist[2]), "#.####")
+c0 = str.tostring(close,             "#.####")
+l1 = str.tostring(low[1],            "#.####")
+l2 = str.tostring(low[2],            "#.####")
+sm = str.tostring(sma20,             "#.####")
+op = str.tostring(open,              "#.####")
+
+tip = "SELL SIGNAL\n" +
+      "MACD Histogram (all red, middle smallest abs):\n" +
+      "  2d ago:          hist=" + h2 + "  abs=" + a2 + "\n" +
+      "  Yesterday (mid): hist=" + h1 + "  abs=" + a1 + " (smallest)\n" +
+      "  Today:           hist=" + h0 + "  abs=" + a0 + "\n" +
+      "Candle crossed down SMA: open=" + op + " > SMA=" + sm + ", close=" + c0 + " below SMA\n" +
+      "Today close (" + c0 + ") below all 3-day lows:\n" +
+      "  Low 1d ago=" + l1 + "  Low 2d ago=" + l2 + ": YES\n" +
+      "Signal: Histogram dipped toward zero (mid), resumed deeper red today,\n" +
+      "candle sliced through SMA with close below all 3-day lows."
+
+// ── Label ─────────────────────────────────────────────────────────────────────
+if sellSignal
+    label.new(x=bar_index, y=labelY, text="SELL", style=label.style_label_down, color=color.new(#ADD8E6, 0), textcolor=color.black, size=size.normal, tooltip=tip)
+
+// ── Alert ─────────────────────────────────────────────────────────────────────
+alertcondition(sellSignal, title="MACD Red Peak Sell", message="MACD red peak + new low sell on {{ticker}} @ {{close}}")
