@@ -1,0 +1,125 @@
+//@version=6
+indicator("Descending Peak Break Buy", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+grpMain  = "Signal Settings"
+lbBars   = input.int(120, "Lookback bars (≈ 6 months)", minval=20,  maxval=300, group=grpMain)
+bodyPct  = input.float(2.0, "Min green body (%)",               minval=0.1, step=0.1, group=grpMain) / 100
+pullPct  = input.float(3.0, "Min pullback after each peak (%)", minval=0.1, step=0.1, group=grpMain) / 100
+wing     = input.int(5,   "Pivot wing bars (each side)",        minval=2,   maxval=15, group=grpMain)
+extBars  = input.int(10,  "Extend line beyond today (bars)",    minval=1,   maxval=50, group=grpMain)
+
+grpMACD  = "MACD Settings"
+mFast    = input.int(12, "Fast Length",   minval=1, group=grpMACD)
+mSlow    = input.int(26, "Slow Length",   minval=1, group=grpMACD)
+mSig     = input.int(9,  "Signal Length", minval=1, group=grpMACD)
+
+// ── MACD ─────────────────────────────────────────────────────────────────────
+[macdLine, signalLine, hist] = ta.macd(close, mFast, mSlow, mSig)
+
+// ── Find top 2 valid pivot highs in lookback window ───────────────────────────
+float topVal1 = na
+int   topBar1 = na
+float topVal2 = na
+int   topBar2 = na
+
+for i = wing + 1 to lbBars - wing
+    isHigh = true
+    for j = 1 to wing
+        if high[i - j] >= high[i]
+            isHigh := false
+            break
+    if isHigh
+        for j = 1 to wing
+            if high[i + j] >= high[i]
+                isHigh := false
+                break
+    if isHigh
+        hasPull = false
+        for j = 1 to i - 1
+            if low[j] <= high[i] * (1 - pullPct)
+                hasPull := true
+                break
+        if hasPull
+            if na(topVal1) or high[i] > topVal1
+                topVal2 := topVal1
+                topBar2 := topBar1
+                topVal1 := high[i]
+                topBar1 := i
+            else if na(topVal2) or high[i] > topVal2
+                topVal2 := high[i]
+                topBar2 := i
+
+// ── Assign: pA = older/higher peak, pB = newer/lower peak ────────────────────
+float pAVal = na
+int   pABar = na
+float pBVal = na
+int   pBBar = na
+bool  validPeaks = false
+
+if not na(topVal1) and not na(topVal2)
+    if topBar1 > topBar2
+        pAVal := topVal1
+        pABar := topBar1
+        pBVal := topVal2
+        pBBar := topBar2
+    else
+        pAVal := topVal2
+        pABar := topBar2
+        pBVal := topVal1
+        pBBar := topBar1
+    validPeaks := pBVal < pAVal
+
+// ── Trendline values ──────────────────────────────────────────────────────────
+float trendNow    = na
+float trendFuture = na
+if validPeaks
+    slope         = (pBVal - pAVal) / float(pABar - pBBar)
+    trendNow     := pBVal + slope * float(pBBar)
+    trendFuture  := trendNow + slope * float(extBars)
+
+// ── Conditions ────────────────────────────────────────────────────────────────
+cond1 = close > open and (close - open) / open >= bodyPct
+cond2 = not na(trendNow) and low < trendNow and close > trendNow
+cond3 = hist > 0
+
+buySignal = validPeaks and cond1 and cond2 and cond3
+
+// ── Visuals ───────────────────────────────────────────────────────────────────
+if buySignal
+    atr14   = ta.atr(14)
+    arrowY  = low - atr14 * 0.8
+    lineBtm = arrowY - atr14 * 0.6
+
+    tip = "BUY SIGNAL: Descending Peak Trendline Break\n" +
+          "Peak A (older, higher): " + str.tostring(pAVal, "#.####") + " (" + str.tostring(pABar) + " bars ago)\n" +
+          "Peak B (newer, lower):  " + str.tostring(pBVal, "#.####") + " (" + str.tostring(pBBar) + " bars ago)\n" +
+          "Trendline at today=" + str.tostring(trendNow, "#.####") + "\n" +
+          "Today close=" + str.tostring(close, "#.####") + " crossed above trendline: YES\n" +
+          "Green body=" + str.tostring((close - open) / open * 100, "#.##") + "% (min " + str.tostring(bodyPct * 100, "#.#") + "%)\n" +
+          "Both peaks pulled back ≥" + str.tostring(pullPct * 100, "#.#") + "%: YES\n" +
+          "MACD histogram=" + str.tostring(hist, "#.####") + " (green): YES"
+
+    // Light blue solid line from older peak through newer peak, extended beyond today
+    line.new(x1=bar_index - pABar, y1=pAVal, x2=bar_index + extBars, y2=trendFuture,
+             color=color.new(#ADD8E6, 0), width=3, style=line.style_solid)
+
+    // "breakout" label — white fill, black font, small frame, above candle
+    labelTop = high + atr14 * 1.2
+    label.new(x=bar_index, y=labelTop, text="breakout", style=label.style_label_down,
+              color=color.white, textcolor=color.black, size=size.small, tooltip=tip)
+
+    // Light blue down arrow (↓) at crossing point with tail up to label
+    label.new(x=bar_index, y=trendNow, text="↓", style=label.style_none,
+              textcolor=color.new(#ADD8E6, 0), size=size.huge)
+    line.new(x1=bar_index, y1=labelTop, x2=bar_index, y2=trendNow,
+             color=color.new(#ADD8E6, 0), width=2)
+
+    // Yellow arrow and tail
+    label.new(x=bar_index, y=arrowY, text="▲", style=label.style_none,
+              textcolor=color.yellow, size=size.huge, tooltip=tip)
+    line.new(x1=bar_index, y1=arrowY, x2=bar_index, y2=lineBtm,
+             color=color.yellow, width=4)
+
+alertcondition(buySignal, title="Descending Peak Break Buy",
+               message="Descending peak trendline break on {{ticker}} @ {{close}}")
