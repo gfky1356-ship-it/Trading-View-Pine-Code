@@ -1,0 +1,47 @@
+//@version=6
+indicator("Price New High + MACD Histogram Divergence Sell", overlay=true, max_labels_count=500)
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+grpNH     = "New High Settings"
+nhLookback = input.int(20, "New High Lookback (bars)", minval=2, group=grpNH)
+
+grpMACD   = "MACD Settings"
+macdFast  = input.int(12, "Fast Length",              minval=1, group=grpMACD)
+macdSlow  = input.int(26, "Slow Length",              minval=1, group=grpMACD)
+macdSig   = input.int(9,  "Signal Length",            minval=1, group=grpMACD)
+fallDays  = input.int(5,  "Histogram falling N days", minval=2, maxval=20, group=grpMACD)
+
+// ── MACD ──────────────────────────────────────────────────────────────────────
+[macdLine, signalLine, hist] = ta.macd(close, macdFast, macdSlow, macdSig)
+
+// ── Conditions ────────────────────────────────────────────────────────────────
+// Price making new high over lookback window
+newHigh = high >= ta.highest(high, nhLookback)
+
+// MACD histogram continuously falling for N days
+histFalling = true
+for i = 0 to fallDays - 2
+    if hist[i] >= hist[i + 1]
+        histFalling := false
+
+sellSignal = newHigh and histFalling
+
+// ── Label position ────────────────────────────────────────────────────────────
+atrOffset = ta.atr(14) * 0.3
+labelY    = high + atrOffset
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+tip = "SELL - Bearish Divergence\n" +
+      "Price new " + str.tostring(nhLookback) + "-bar high: " + str.tostring(high, "#.####") + "\n" +
+      "MACD hist falling for " + str.tostring(fallDays) + " days: YES\n" +
+      "hist now=" + str.tostring(hist, "#.####") + "\n" +
+      "hist 1d ago=" + str.tostring(hist[1], "#.####") + "\n" +
+      "hist 2d ago=" + str.tostring(hist[2], "#.####") + "\n" +
+      "Signal: Price at highs but MACD momentum fading -- bearish divergence."
+
+// ── Label ─────────────────────────────────────────────────────────────────────
+if sellSignal
+    label.new(x=bar_index, y=labelY, text="SELL", style=label.style_label_down, color=color.navy, textcolor=color.white, size=size.normal, tooltip=tip)
+
+// ── Alert ─────────────────────────────────────────────────────────────────────
+alertcondition(sellSignal, title="New High MACD Divergence", message="Bearish divergence sell on {{ticker}} @ {{close}}")
