@@ -85,6 +85,33 @@ smaStack = pairOk(out1, show1, out2, show2) and
            pairOk(out8, show8, out9, show9) and
            pairOk(out9, show9, out10, show10)
 
+// ── SMA10/20 Spread Filter ────────────────────────────────────────────────────
+grpSpread  = "SMA10/20 Spread Filter"
+spreadDays = input.int(2, "Invalidate if spread widens for N consecutive days", minval=1, maxval=10, group=grpSpread)
+
+spread     = out1 - out2
+spreadWide = true
+for i = 0 to spreadDays - 2
+    if spread[i] <= spread[i + 1]
+        spreadWide := false
+
+// ── MACD Filter ───────────────────────────────────────────────────────────────
+grpMACD  = "MACD Filter"
+macdFast = input.int(12, "MACD Fast Length",                    minval=1, group=grpMACD)
+macdSlow = input.int(26, "MACD Slow Length",                    minval=1, group=grpMACD)
+macdSig  = input.int(9,  "MACD Signal Length",                  minval=1, group=grpMACD)
+histDays = input.int(5,  "Histogram declining lookback (days)", minval=2, maxval=20, group=grpMACD)
+
+[macdLine, signalLine, hist] = ta.macd(close, macdFast, macdSlow, macdSig)
+
+histRed       = hist < 0
+histDeclining = true
+for i = 0 to histDays - 2
+    if hist[i] >= hist[i + 1]
+        histDeclining := false
+
+macdCondition = histRed or histDeclining
+
 // ── Candle Conditions ─────────────────────────────────────────────────────────
 prevGreen     = close[1] > open[1]
 currRed       = close < open
@@ -94,7 +121,7 @@ openAboveSMAs = open > out1 and open > out2
 prev3DayHigh  = high[1] > high[2] and high[1] > high[3]
 bearishCandle = prevGreen and currRed and higherOpen and lowerClose and openAboveSMAs and prev3DayHigh
 
-sellSignal = smaStack and bearishCandle
+sellSignal = smaStack and bearishCandle and not spreadWide and macdCondition
 
 // ── Label position ────────────────────────────────────────────────────────────
 atrOffset = ta.atr(14) * 0.3
@@ -119,15 +146,14 @@ tip = "SELL SIGNAL\n" +
       "Prev green close: " + pC + "\n" +
       "Today open: " + cO + " (gapped above prev green close)\n" +
       "Today close: " + cC + " (closed back below prev green close)\n" +
+      "SMA10/20 spread NOT widening for " + str.tostring(spreadDays) + " days: YES\n" +
+      "MACD hist=" + str.tostring(hist, "#.####") + " (red=" + str.tostring(histRed) + " | declining " + str.tostring(histDays) + "d=" + str.tostring(histDeclining) + ")\n" +
       "Signal: Rejection -- gap-up open failed to hold,\n" +
       "closed beneath yesterday's green close."
 
 // ── Label ─────────────────────────────────────────────────────────────────────
 if sellSignal
     label.new(x=bar_index, y=labelY, text="SELL", style=label.style_label_down, color=color.navy, textcolor=color.white, size=size.normal, tooltip=tip)
-
-// ── Bar highlight ─────────────────────────────────────────────────────────────
-bgcolor(sellSignal ? color.new(color.red, 88) : na, title="Signal Bar Highlight")
 
 // ── Alert ─────────────────────────────────────────────────────────────────────
 alertcondition(sellSignal, title="SMA Stack Bearish Sell", message="Sell signal on {{ticker}} @ {{close}}")
