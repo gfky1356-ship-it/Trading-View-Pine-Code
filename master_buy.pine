@@ -24,11 +24,11 @@ plot(sma20, "SMA20", color=color.red,  linewidth=2)
 // SIGNAL A — Descending Peak Trendline Break  (yellow ▲ | "BREAK" label)
 // ════════════════════════════════════════════════════════════════════════════
 grpA      = "Signal A: Descending Peak Break"
-a_lbBars  = input.int(120,  "Lookback bars (≈ 6 months)",        minval=20,  maxval=300, group=grpA)
-a_bodyPct = input.float(2.0, "Min green body (%)",                minval=0.1, step=0.1,  group=grpA) / 100
-a_pullPct = input.float(3.0, "Min pullback after each peak (%)",  minval=0.1, step=0.1,  group=grpA) / 100
-a_wing    = input.int(5,    "Pivot wing bars (each side)",        minval=2,   maxval=15,  group=grpA)
-a_extBars = input.int(10,   "Extend trendline beyond today (bars)", minval=1, maxval=50,  group=grpA)
+a_lbBars  = input.int(120,  "Lookback bars (≈ 6 months)",          minval=20,  maxval=300, group=grpA)
+a_bodyPct = input.float(2.0, "Min green body (%)",                  minval=0.1, step=0.1,  group=grpA) / 100
+a_pullPct = input.float(3.0, "Min pullback after each peak (%)",    minval=0.1, step=0.1,  group=grpA) / 100
+a_wing    = input.int(5,    "Pivot wing bars (each side)",          minval=2,   maxval=15,  group=grpA)
+a_extBars = input.int(10,   "Extend trendline beyond today (bars)", minval=1,   maxval=50,  group=grpA)
 
 float a_topVal1 = na
 int   a_topBar1 = na
@@ -94,45 +94,14 @@ sigA = a_valid and
        hist > 0
 
 // ════════════════════════════════════════════════════════════════════════════
-// SIGNAL B — Stock Strength vs Index + AA1 Gap-Up  (purple ▲ | "AA1" label)
-// ════════════════════════════════════════════════════════════════════════════
-grpB          = "Signal B: Stock Strength + AA1 Gap-Up"
-b_smaLen      = input.int(30,  "SMA period for strength ratio",        minval=1,  group=grpB)
-b_bgTrans     = input.int(85,  "Background transparency (0=solid)",    minval=0, maxval=100, group=grpB)
-b_lookback    = input.int(3,   "AA1: consolidation bars (2–4)",        minval=2, maxval=4,   group=grpB)
-b_rangePct    = input.float(1.0, "AA1: high/low range tolerance (%)", step=0.1, group=grpB)
-b_bodyPctAA1  = input.float(3.0, "AA1: max candle body (%)",          step=0.5, group=grpB)
-
-isSG        = syminfo.currency == "SGD" or syminfo.prefix == "SGX"
-indexSymbol = isSG ? "TVC:STI" : "SPY"
-b_stockSma  = ta.sma(close, b_smaLen)
-[b_idxClose, b_idxSma] = request.security(indexSymbol, timeframe.period, [close, ta.sma(close, b_smaLen)])
-
-stockStronger = (close / b_stockSma) > (b_idxClose / b_idxSma)
-bgcolor(stockStronger ? color.new(color.yellow, b_bgTrans) : na, title="Stock stronger than index")
-
-b_maxH       = ta.highest(high, b_lookback)[1]
-b_minH       = ta.lowest(high,  b_lookback)[1]
-b_maxL       = ta.highest(low,  b_lookback)[1]
-b_minL       = ta.lowest(low,   b_lookback)[1]
-b_bodySize   = math.abs(close - open) / open * 100
-
-sigB = sma20 > sma50 and
-       close > open and
-       open > high[1] and
-       ((b_maxH - b_minH) / b_minH * 100) <= b_rangePct and
-       ((b_maxL - b_minL) / b_minL * 100) <= b_rangePct and
-       ta.highest(b_bodySize, b_lookback)[1] <= b_bodyPctAA1
-
-// ════════════════════════════════════════════════════════════════════════════
-// SIGNAL C — MACD Histogram Reverse Above Zero  (green ▲ | "MACD" label)
+// SIGNAL C — MACD Histogram Reverse Above Zero  (lime ▲ | "MACD" label)
 // ════════════════════════════════════════════════════════════════════════════
 grpC = "Signal C: MACD Green Peak"
 
-c_allGreen    = hist[0] > 0 and hist[1] > 0 and hist[2] > 0
-c_midSmall    = math.abs(hist[1]) < math.abs(hist[0]) and math.abs(hist[1]) < math.abs(hist[2])
-c_hasRed      = (close < open) or (close[1] < open[1]) or (close[2] < open[2]) or (close[3] < open[3])
-c_notDecline  = not (hist[1] < hist[2] and hist[2] < hist[3] and hist[3] < hist[4] and hist[4] < hist[5])
+c_allGreen   = hist[0] > 0 and hist[1] > 0 and hist[2] > 0
+c_midSmall   = math.abs(hist[1]) < math.abs(hist[0]) and math.abs(hist[1]) < math.abs(hist[2])
+c_hasRed     = (close < open) or (close[1] < open[1]) or (close[2] < open[2]) or (close[3] < open[3])
+c_notDecline = not (hist[1] < hist[2] and hist[2] < hist[3] and hist[3] < hist[4] and hist[4] < hist[5])
 
 sigC = c_allGreen and c_midSmall and
        macdLine > 0 and
@@ -145,11 +114,11 @@ sigC = c_allGreen and c_midSmall and
 // SIGNAL D — Double Peak Pullback to SMA20  (orange ▲ | "2PK" label)
 // ════════════════════════════════════════════════════════════════════════════
 grpD       = "Signal D: Double Peak (PB to SMA20)"
-d_lookback = input.int(12,   "Lookback Days",                            minval=5,  maxval=30,  group=grpD)
-d_pk2Pct   = input.float(10.0, "Max % today high above 2nd peak",        minval=0.1, step=0.1, group=grpD) / 100
-d_lowBand  = input.float(2.0,  "Lowest point within SMA20 +/-(%)",       minval=0.1, step=0.1, group=grpD) / 100
-d_maxBelow = input.int(3,    "Max days close below SMA20 between peaks", minval=0,  maxval=10, group=grpD)
-d_modPct   = input.float(3.0,  "SMA10 max gap above SMA20 (%)",          minval=0.1, step=0.1, group=grpD) / 100
+d_lookback = input.int(12,    "Lookback Days",                            minval=5,  maxval=30,  group=grpD)
+d_pk2Pct   = input.float(10.0, "Max % today high above 2nd peak",         minval=0.1, step=0.1, group=grpD) / 100
+d_lowBand  = input.float(2.0,  "Lowest point within SMA20 +/-(%)",        minval=0.1, step=0.1, group=grpD) / 100
+d_maxBelow = input.int(3,     "Max days close below SMA20 between peaks", minval=0,  maxval=10, group=grpD)
+d_modPct   = input.float(3.0,  "SMA10 max gap above SMA20 (%)",           minval=0.1, step=0.1, group=grpD) / 100
 
 d_pk2Val = ta.highest(high[1], d_lookback - 1)
 d_pk2Bar = 0
@@ -210,19 +179,6 @@ if sigA
               textcolor=color.yellow, size=size.huge, tooltip=tipA)
     line.new(x1=bar_index, y1=arrowY, x2=bar_index, y2=lineBtm, color=color.yellow, width=4)
 
-// ── Signal B ──────────────────────────────────────────────────────────────────
-if sigB
-    tipB = "SIGNAL B — AA1 Tight Base Gap-Up\n" +
-           "SMA20 > SMA50: YES\n" +
-           "Gap-up open above prev high: open=" + str.tostring(open, "#.##") + " prev high=" + str.tostring(high[1], "#.##") + "\n" +
-           "Consolidation tight (high range / low range / small bodies): YES"
-    labelTop = high + atr14 * 1.2
-    label.new(x=bar_index, y=labelTop, text="AA1", style=label.style_label_down,
-              color=color.purple, textcolor=color.white, size=size.small, tooltip=tipB)
-    label.new(x=bar_index, y=arrowY, text="▲", style=label.style_none,
-              textcolor=color.purple, size=size.huge, tooltip=tipB)
-    line.new(x1=bar_index, y1=arrowY, x2=bar_index, y2=lineBtm, color=color.purple, width=4)
-
 // ── Signal C ──────────────────────────────────────────────────────────────────
 if sigC
     tipC = "SIGNAL C — MACD Green Peak (Histogram Reverse)\n" +
@@ -260,7 +216,6 @@ if sigD
 // ALERTS
 // ════════════════════════════════════════════════════════════════════════════
 alertcondition(sigA, title="A: Descending Peak Break", message="[BREAK] {{ticker}} @ {{close}}")
-alertcondition(sigB, title="B: AA1 Gap-Up",            message="[AA1] {{ticker}} @ {{close}}")
 alertcondition(sigC, title="C: MACD Green Peak",       message="[MACD] {{ticker}} @ {{close}}")
 alertcondition(sigD, title="D: Double Peak",           message="[2PK] {{ticker}} @ {{close}}")
-alertcondition(sigA or sigB or sigC or sigD, title="Any Buy Signal", message="[BUY] {{ticker}} @ {{close}}")
+alertcondition(sigA or sigC or sigD, title="Any Buy Signal", message="[BUY] {{ticker}} @ {{close}}")
