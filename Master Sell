@@ -1,0 +1,250 @@
+//@version=6
+indicator("Master Sell", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+
+// ══ SHARED: MACD (used by Signals A, B, C) ════════════════════════════════════
+grpMACD = "MACD Settings (Shared)"
+mFast   = input.int(12, "Fast Length",   minval=1, group=grpMACD)
+mSlow   = input.int(26, "Slow Length",   minval=1, group=grpMACD)
+mSig    = input.int(9,  "Signal Length", minval=1, group=grpMACD)
+[macdLine, sigLine, hist] = ta.macd(close, mFast, mSlow, mSig)
+
+atr14  = ta.atr(14)
+labelY = high + atr14 * 0.3
+
+// ══ SIGNAL A: SMA Stack Bearish 高开低走型 ═════════════════════════════════════
+grpA_SMA = "A: SMA Stack Settings"
+show1  = input.bool(true,  "Show SMA #1",  inline="1",  group=grpA_SMA)
+len1   = input.int(10,  "",  minval=1, inline="1",  group=grpA_SMA)
+src1   = input.source(close, "", inline="1",  group=grpA_SMA)
+show2  = input.bool(true,  "Show SMA #2",  inline="2",  group=grpA_SMA)
+len2   = input.int(20,  "",  minval=1, inline="2",  group=grpA_SMA)
+src2   = input.source(close, "", inline="2",  group=grpA_SMA)
+show3  = input.bool(true,  "Show SMA #3",  inline="3",  group=grpA_SMA)
+len3   = input.int(50,  "",  minval=1, inline="3",  group=grpA_SMA)
+src3   = input.source(close, "", inline="3",  group=grpA_SMA)
+show4  = input.bool(false, "Show SMA #4",  inline="4",  group=grpA_SMA)
+len4   = input.int(150, "",  minval=1, inline="4",  group=grpA_SMA)
+src4   = input.source(close, "", inline="4",  group=grpA_SMA)
+show5  = input.bool(false, "Show SMA #5",  inline="5",  group=grpA_SMA)
+len5   = input.int(200, "",  minval=1, inline="5",  group=grpA_SMA)
+src5   = input.source(close, "", inline="5",  group=grpA_SMA)
+show6  = input.bool(false, "Show SMA #6",  inline="6",  group=grpA_SMA)
+len6   = input.int(250, "",  minval=1, inline="6",  group=grpA_SMA)
+src6   = input.source(close, "", inline="6",  group=grpA_SMA)
+show7  = input.bool(false, "Show SMA #7",  inline="7",  group=grpA_SMA)
+len7   = input.int(300, "",  minval=1, inline="7",  group=grpA_SMA)
+src7   = input.source(close, "", inline="7",  group=grpA_SMA)
+show8  = input.bool(false, "Show SMA #8",  inline="8",  group=grpA_SMA)
+len8   = input.int(400, "",  minval=1, inline="8",  group=grpA_SMA)
+src8   = input.source(close, "", inline="8",  group=grpA_SMA)
+show9  = input.bool(false, "Show SMA #9",  inline="9",  group=grpA_SMA)
+len9   = input.int(500, "",  minval=1, inline="9",  group=grpA_SMA)
+src9   = input.source(close, "", inline="9",  group=grpA_SMA)
+show10 = input.bool(false, "Show SMA #10", inline="10", group=grpA_SMA)
+len10  = input.int(600, "",  minval=1, inline="10", group=grpA_SMA)
+src10  = input.source(close, "", inline="10", group=grpA_SMA)
+
+grpA_Gap    = "A: SMA Gap Filter"
+gapPct      = input.float(0.05, "Min gap between each SMA (%)", minval=0.0, step=0.01, group=grpA_Gap) / 100
+
+grpA_Spr    = "A: Spread Filter"
+spreadDays  = input.int(2, "Invalidate if SMA10/20 spread widens N days", minval=1, maxval=10, group=grpA_Spr)
+
+grpA_MACD   = "A: MACD Filter"
+histDays_A  = input.int(5, "Histogram declining lookback (days)", minval=2, maxval=20, group=grpA_MACD)
+
+// Compute SMAs
+out1  = ta.sma(src1,  len1)
+out2  = ta.sma(src2,  len2)   // SMA20 — shared with Signals B, D, E
+out3  = ta.sma(src3,  len3)
+out4  = ta.sma(src4,  len4)
+out5  = ta.sma(src5,  len5)
+out6  = ta.sma(src6,  len6)
+out7  = ta.sma(src7,  len7)
+out8  = ta.sma(src8,  len8)
+out9  = ta.sma(src9,  len9)
+out10 = ta.sma(src10, len10)
+
+// Plot SMAs
+plot(show1  ? out1  : na, "SMA #1",  color=close >= out1  ? color.blue  : color.orange)
+plot(show2  ? out2  : na, "SMA #2",  color=color.red, linewidth=2)
+plot(show3  ? out3  : na, "SMA #3",  color=color.white, linewidth=4)
+plot(show4  ? out4  : na, "SMA #4",  color=close >= out4  ? color.blue  : color.orange)
+plot(show5  ? out5  : na, "SMA #5",  color=close >= out5  ? color.blue  : color.orange, linewidth=4)
+plot(show6  ? out6  : na, "SMA #6",  color=close >= out6  ? color.green : color.red)
+plot(show7  ? out7  : na, "SMA #7",  color=close >= out7  ? color.green : color.red,    linewidth=2)
+plot(show8  ? out8  : na, "SMA #8",  color=close >= out8  ? color.green : color.red)
+plot(show9  ? out9  : na, "SMA #9",  color=close >= out9  ? color.green : color.red)
+plot(show10 ? out10 : na, "SMA #10", color=close >= out10 ? color.green : color.red,    linewidth=4)
+
+// SMA Stack check
+gA = 1 + gapPct
+pairOk(a, aOn, b, bOn) =>
+    not aOn or not bOn or a >= b * gA
+
+smaStack = pairOk(out1, show1, out2, show2) and
+           pairOk(out2, show2, out3, show3) and
+           pairOk(out3, show3, out4, show4) and
+           pairOk(out4, show4, out5, show5) and
+           pairOk(out5, show5, out6, show6) and
+           pairOk(out6, show6, out7, show7) and
+           pairOk(out7, show7, out8, show8) and
+           pairOk(out8, show8, out9, show9) and
+           pairOk(out9, show9, out10, show10)
+
+// Spread filter
+spreadA    = out1 - out2
+spreadWide = true
+for i = 0 to spreadDays - 2
+    if spreadA[i] <= spreadA[i + 1]
+        spreadWide := false
+
+// MACD filter
+histRed_A  = hist < 0
+histDecl_A = true
+for i = 0 to histDays_A - 2
+    if hist[i] >= hist[i + 1]
+        histDecl_A := false
+macdCond_A = histRed_A or histDecl_A
+
+// Candle conditions
+prevGreen_A  = close[1] > open[1]
+currRed_A    = close < open
+higherOpen_A = open  > close[1]
+lowerClose_A = close < close[1]
+aboveSMAs_A  = open > out1 and open > out2
+prev3High_A  = high[1] > high[2] and high[1] > high[3]
+bearish_A    = prevGreen_A and currRed_A and higherOpen_A and lowerClose_A and aboveSMAs_A and prev3High_A
+
+sellA = smaStack and bearish_A and not spreadWide and macdCond_A
+
+tipA = "A: SMA Stack Bearish\n" +
+       "SMA" + str.tostring(len1) + "=" + str.tostring(out1,"#.####") + "  " +
+       "SMA" + str.tostring(len2) + "=" + str.tostring(out2,"#.####") + "  " +
+       "SMA" + str.tostring(len3) + "=" + str.tostring(out3,"#.####") + "\n" +
+       "Green 3-day high: YES | Red open above SMA10/20: YES\n" +
+       "Prev green close: " + str.tostring(close[1],"#.####") + "\n" +
+       "Today O=" + str.tostring(open,"#.####") + " C=" + str.tostring(close,"#.####") + "\n" +
+       "Spread not widening: YES | MACD hist or declining: YES"
+
+if sellA
+    label.new(x=bar_index, y=labelY, text="SELL", style=label.style_label_down, color=color.navy, textcolor=color.white, size=size.normal, tooltip=tipA)
+
+alertcondition(sellA, title="A: SMA Stack Bearish", message="A: SMA Stack Bearish on {{ticker}} @ {{close}}")
+
+// ══ SIGNAL B: MACD Red Peak 零线下面histogram peak ════════════════════════════
+// Uses shared hist + out2 (SMA20)
+allRed_B   = hist[0] < 0 and hist[1] < 0 and hist[2] < 0
+midSmall_B = math.abs(hist[1]) < math.abs(hist[0]) and math.abs(hist[1]) < math.abs(hist[2])
+macdPat_B  = allRed_B and midSmall_B
+openAbv_B  = open  > out2
+crossDn_B  = close < out2
+newLow_B   = close < low[1] and close < low[2]
+
+sellB = macdPat_B and openAbv_B and crossDn_B and newLow_B
+
+tipB = "B: MACD Red Peak\n" +
+       "All 3 hist red, middle smallest abs:\n" +
+       "  2d=" + str.tostring(hist[2],"#.####") +
+       "  1d=" + str.tostring(hist[1],"#.####") +
+       "  Today=" + str.tostring(hist[0],"#.####") + "\n" +
+       "Open=" + str.tostring(open,"#.####") + " > SMA20=" + str.tostring(out2,"#.####") + "\n" +
+       "Close=" + str.tostring(close,"#.####") + " crossed below SMA20\n" +
+       "Close below 3-day lows: YES"
+
+if sellB
+    label.new(x=bar_index, y=labelY, text="SELL", style=label.style_label_down, color=color.new(#ADD8E6, 0), textcolor=color.black, size=size.normal, tooltip=tipB)
+
+alertcondition(sellB, title="B: MACD Red Peak", message="B: MACD Red Peak on {{ticker}} @ {{close}}")
+
+// ══ SIGNAL C: New High + MACD Divergence 创新高macd连续下降 ══════════════════════
+grpC       = "C: New High + MACD Divergence"
+nhLookback = input.int(20, "New High Lookback (bars)", minval=2, group=grpC)
+fallDays_C = input.int(5,  "Histogram falling N days", minval=2, maxval=20, group=grpC)
+
+newHigh_C  = high >= ta.highest(high, nhLookback)
+histFall_C = true
+for i = 0 to fallDays_C - 2
+    if hist[i] >= hist[i + 1]
+        histFall_C := false
+
+sellC = newHigh_C and histFall_C
+
+tipC = "C: New High + MACD Divergence\n" +
+       "Price new " + str.tostring(nhLookback) + "-bar high: " + str.tostring(high,"#.####") + "\n" +
+       "MACD hist falling " + str.tostring(fallDays_C) + " days: YES\n" +
+       "hist today=" + str.tostring(hist,"#.####") +
+       "  1d=" + str.tostring(hist[1],"#.####") +
+       "  2d=" + str.tostring(hist[2],"#.####")
+
+if sellC
+    label.new(x=bar_index, y=labelY, text="SELL", style=label.style_label_down, color=color.navy, textcolor=color.white, size=size.normal, tooltip=tipC)
+
+alertcondition(sellC, title="C: New High MACD Divergence", message="C: New High MACD Divergence on {{ticker}} @ {{close}}")
+
+// ══ SIGNAL D: Resistance Zone Lines 标注阻力区 Pattern 1 ══════════════════════
+grpD     = "D: Resistance Zone"
+lookback = input.int(10,    "Lookback Days",                        minval=3, maxval=30, group=grpD)
+highPct  = input.float(1.0, "Top 3 highs within N% of today high", minval=0.1, step=0.1, group=grpD)
+lowPct   = input.float(1.0, "Today + last 3 lows range within N%", minval=0.1, step=0.1, group=grpD)
+
+var float dh1 = na
+var float dh2 = na
+var float dh3 = na
+dh1 := -1.0
+dh2 := -1.0
+dh3 := -1.0
+
+for i = 0 to lookback - 1
+    if high[i] >= dh1
+        dh3 := dh2
+        dh2 := dh1
+        dh1 := high[i]
+    else if high[i] >= dh2
+        dh3 := dh2
+        dh2 := high[i]
+    else if high[i] >= dh3
+        dh3 := high[i]
+
+highThr_D   = high * highPct / 100
+withinH_D   = math.abs(dh1 - high) <= highThr_D and math.abs(dh2 - high) <= highThr_D and math.abs(dh3 - high) <= highThr_D
+minLow_D    = math.min(low, math.min(low[1], math.min(low[2], low[3])))
+maxLow_D    = math.max(low, math.max(low[1], math.max(low[2], low[3])))
+lowRange_D  = (maxLow_D - minLow_D) / minLow_D * 100
+withinL_D   = lowRange_D <= lowPct
+aboveSMA_D  = close > out2
+
+sellD = withinH_D and withinL_D and aboveSMA_D
+
+if sellD
+    line.new(x1=bar_index - 5, y1=high, x2=bar_index,     y2=high, color=color.new(#FFB6C1, 0), width=2, style=line.style_solid)
+    line.new(x1=bar_index,     y1=high, x2=bar_index + 5, y2=high, color=color.new(#ADD8E6, 0), width=2, style=line.style_solid)
+
+alertcondition(sellD, title="D: Resistance Zone", message="D: Resistance Zone on {{ticker}} @ {{close}}")
+
+// ══ SIGNAL E: Three Green Candles Box 标注阻力区 Pattern 2 ════════════════════
+grpE     = "E: Three Green Box"
+openTol  = input.float(0.3, "2nd/3rd open vs prev close tolerance (%)", minval=0.0, step=0.1, group=grpE) / 100
+breakTol = input.float(1.0, "Nearly broken tolerance (%)",              minval=0.0, step=0.1, group=grpE) / 100
+
+c1G_E    = close[3] > open[3]
+c2G_E    = close[2] > open[2]
+c3G_E    = close[1] > open[1]
+c2O_E    = open[2] >= close[3] * (1 - openTol)
+c3O_E    = open[1] >= close[2] * (1 - openTol)
+threeG_E = c1G_E and c2G_E and c3G_E and c2O_E and c3O_E
+nearBrk_E = low <= open[3] * (1 + breakTol)
+
+sellE = threeG_E and nearBrk_E
+
+boxTop_E = math.max(high[3], math.max(high[2], high[1]))
+boxBot_E = math.min(low[3],  math.min(low[2],  low[1]))
+
+if sellE
+    box.new(left=bar_index - 3, top=boxTop_E, right=bar_index - 1, bottom=boxBot_E,
+            border_color=color.new(color.yellow, 20), border_width=2,
+            bgcolor=color.new(color.yellow, 85))
+    label.new(x=bar_index, y=high + atr14 * 1.5, text="↓", style=label.style_none,
+              textcolor=color.blue, size=size.huge)
+
+alertcondition(sellE, title="E: Three Green Box Test", message="E: Three Green Box on {{ticker}} @ {{close}}")
