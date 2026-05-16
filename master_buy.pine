@@ -17,9 +17,8 @@ sma50    = ta.sma(close, 50)
 volSma20 = ta.sma(volume, 20)
 atr14    = ta.atr(14)
 
-plot(sma10, "SMA10", color=color.blue,  linewidth=1)
-plot(sma20, "SMA20", color=color.red,   linewidth=2)
-plot(sma50, "SMA50", color=color.white, linewidth=2)
+plot(sma10, "SMA10", color=color.blue, linewidth=1)
+plot(sma20, "SMA20", color=color.red,  linewidth=2)
 
 // ════════════════════════════════════════════════════════════════════════════
 // SIGNAL A — Descending Peak Trendline Break  (yellow ▲ | "BREAK" label)
