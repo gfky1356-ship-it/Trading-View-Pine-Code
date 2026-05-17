@@ -1,0 +1,100 @@
+//@version=5
+indicator("KY 20SMA / 50SMA Slope Trend Window", overlay=false)
+
+// ==========================
+// Inputs
+// ==========================
+slopeLookback = input.int(5, "Slope Lookback Bars", minval=1, maxval=50)
+showHistogram = input.bool(true, "Show Slope Histogram")
+showSlopeLines = input.bool(true, "Show Slope Lines")
+showZeroLine = input.bool(true, "Show Zero Line")
+showTable = input.bool(true, "Show Slope Table")
+slopeSmoothLen = input.int(1, "Slope Smoothing", minval=1, maxval=20)
+
+// ==========================
+// SMA Calculation
+// ==========================
+sma20 = ta.sma(close, 20)
+sma50 = ta.sma(close, 50)
+
+// ==========================
+// Slope Calculation
+// Slope % = Current SMA compared with SMA N bars ago
+// ==========================
+rawSlope20Pct = (sma20 - sma20[slopeLookback]) / sma20[slopeLookback] * 100
+rawSlope50Pct = (sma50 - sma50[slopeLookback]) / sma50[slopeLookback] * 100
+
+slope20Pct = ta.sma(rawSlope20Pct, slopeSmoothLen)
+slope50Pct = ta.sma(rawSlope50Pct, slopeSmoothLen)
+
+// ==========================
+// Slope Direction
+// ==========================
+slope20Up = slope20Pct > 0
+slope50Up = slope50Pct > 0
+
+slope20Improving = slope20Pct > slope20Pct[1]
+slope50Improving = slope50Pct > slope50Pct[1]
+
+// ==========================
+// Colors
+// ==========================
+slope20Color = slope20Pct >= 0 ? color.lime : color.red
+slope50Color = slope50Pct >= 0 ? color.aqua : color.orange
+
+hist20Color = slope20Pct >= 0 ? color.new(color.lime, 35) : color.new(color.red, 35)
+hist50Color = slope50Pct >= 0 ? color.new(color.aqua, 60) : color.new(color.orange, 60)
+
+// ==========================
+// Zero Line
+// ==========================
+hline(0, "Zero Line", color=color.gray, linestyle=hline.style_dotted)
+
+// ==========================
+// Histogram
+// ==========================
+plot(showHistogram ? slope20Pct : na, title="20SMA Slope Histogram", style=plot.style_columns, color=hist20Color)
+plot(showHistogram ? slope50Pct : na, title="50SMA Slope Histogram", style=plot.style_columns, color=hist50Color)
+
+// ==========================
+// Slope Lines
+// ==========================
+plot(showSlopeLines ? slope20Pct : na, title="20SMA Slope %", color=slope20Color, linewidth=2)
+plot(showSlopeLines ? slope50Pct : na, title="50SMA Slope %", color=slope50Color, linewidth=2)
+
+// ==========================
+// Background Highlight
+// ==========================
+bothSlopeUp = slope20Pct > 0 and slope50Pct > 0
+bothSlopeDown = slope20Pct < 0 and slope50Pct < 0
+
+bgColor = bothSlopeUp ? color.new(color.green, 88) : bothSlopeDown ? color.new(color.red, 88) : na
+bgcolor(bgColor)
+
+// ==========================
+// Table Display
+// ==========================
+var table slopeTable = table.new(position.top_right, 4, 3, border_width=1)
+
+if showTable and barstate.islast
+    table.cell(slopeTable, 0, 0, "SMA", text_color=color.white, bgcolor=color.black)
+    table.cell(slopeTable, 1, 0, "Slope %", text_color=color.white, bgcolor=color.black)
+    table.cell(slopeTable, 2, 0, "Direction", text_color=color.white, bgcolor=color.black)
+    table.cell(slopeTable, 3, 0, "Trend", text_color=color.white, bgcolor=color.black)
+
+    table.cell(slopeTable, 0, 1, "20SMA", text_color=color.white, bgcolor=color.black)
+    table.cell(slopeTable, 1, 1, str.tostring(slope20Pct, "#.###") + "%", text_color=color.white, bgcolor=slope20Pct >= 0 ? color.green : color.red)
+    table.cell(slopeTable, 2, 1, slope20Up ? "UP" : "DOWN", text_color=color.white, bgcolor=slope20Up ? color.green : color.red)
+    table.cell(slopeTable, 3, 1, slope20Improving ? "Improving" : "Weakening", text_color=color.white, bgcolor=slope20Improving ? color.green : color.orange)
+
+    table.cell(slopeTable, 0, 2, "50SMA", text_color=color.white, bgcolor=color.black)
+    table.cell(slopeTable, 1, 2, str.tostring(slope50Pct, "#.###") + "%", text_color=color.white, bgcolor=slope50Pct >= 0 ? color.green : color.red)
+    table.cell(slopeTable, 2, 2, slope50Up ? "UP" : "DOWN", text_color=color.white, bgcolor=slope50Up ? color.green : color.red)
+    table.cell(slopeTable, 3, 2, slope50Improving ? "Improving" : "Weakening", text_color=color.white, bgcolor=slope50Improving ? color.green : color.orange)
+
+// ==========================
+// Alerts
+// ==========================
+alertcondition(slope20Pct > 0 and slope20Pct[1] <= 0, title="20SMA Slope Turns Positive", message="20SMA slope turned positive")
+alertcondition(slope50Pct > 0 and slope50Pct[1] <= 0, title="50SMA Slope Turns Positive", message="50SMA slope turned positive")
+alertcondition(bothSlopeUp and not bothSlopeUp[1], title="Both 20SMA and 50SMA Slopes Positive", message="Both 20SMA and 50SMA slopes are positive")
