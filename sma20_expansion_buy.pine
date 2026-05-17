@@ -1,0 +1,98 @@
+//@version=6
+indicator("20SMA Expansion Buy", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ════════════════════════════════════════════════════════════════════════════
+// PART A — 相对强度 Delta (强于大盘)
+// ════════════════════════════════════════════════════════════════════════════
+grpA         = "Part A: Relative Strength Delta"
+smaLength    = input.int(30, "Base SMA Period (days)", minval=1, group=grpA)
+deltaMaLen   = input.int(9,  "Delta MA Period",        minval=1, group=grpA)
+
+isSG         = syminfo.currency == "SGD" or syminfo.prefix == "SGX"
+indexSymbol  = isSG ? "TVC:STI" : "SPY"
+
+stockSma     = ta.sma(close, smaLength)
+resultA      = close / stockSma
+
+[indexClose, indexSma] = request.security(indexSymbol, timeframe.period, [close, ta.sma(close, smaLength)])
+resultB      = indexClose / indexSma
+
+deltaAB      = resultA - resultB
+deltaMa      = ta.sma(deltaAB, deltaMaLen)
+
+// Conditions
+a_green      = deltaAB > 0
+a_rising     = deltaAB > deltaAB[1]
+a_aboveMA    = deltaAB > deltaMa * 1.2
+a_maTrending = deltaMa > deltaMa[1]
+a_notFourth  = not (deltaAB[1] > 0 and deltaAB[2] > 0 and deltaAB[3] > 0)
+
+partA        = a_green and a_rising and a_aboveMA and a_maTrending and a_notFourth
+
+// ════════════════════════════════════════════════════════════════════════════
+// PART B — KY 20SMA / 50SMA Slope Trend Window (20SMA在50SMA的扩张)
+// ════════════════════════════════════════════════════════════════════════════
+grpB          = "Part B: 20SMA / 50SMA Slope"
+slopeLookback  = input.int(5,     "Slope Lookback Bars",          minval=1,    maxval=50,  group=grpB)
+slopeSmooth    = input.int(1,     "Slope Smoothing",              minval=1,    maxval=20,  group=grpB)
+slope50MinPct  = input.float(-0.05, "50SMA Slope Min % (allow slightly below 0)", minval=-1.0, maxval=0.0, step=0.01, group=grpB)
+
+sma20         = ta.sma(close, 20)
+sma50         = ta.sma(close, 50)
+
+slope20Pct    = ta.sma((sma20 - sma20[slopeLookback]) / sma20[slopeLookback] * 100, slopeSmooth)
+slope50Pct    = ta.sma((sma50 - sma50[slopeLookback]) / sma50[slopeLookback] * 100, slopeSmooth)
+
+gap           = slope20Pct - slope50Pct
+gap_prev      = slope20Pct[1] - slope50Pct[1]
+
+// Conditions
+b_bothGreen   = slope20Pct > 0 and slope50Pct >= slope50MinPct
+b_20above50   = slope20Pct > slope50Pct
+b_gapWiding   = gap > gap_prev
+b_bothRising  = slope20Pct > slope20Pct[1] and slope50Pct > slope50Pct[1]
+b_50notDown   = sma50 > sma50[1]
+
+partB         = b_bothGreen and b_20above50 and b_gapWiding and b_bothRising and b_50notDown
+
+// ════════════════════════════════════════════════════════════════════════════
+// SIGNAL
+// ════════════════════════════════════════════════════════════════════════════
+sigE = partA and partB
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISUALS
+// ════════════════════════════════════════════════════════════════════════════
+atr14   = ta.atr(14)
+arrowY  = low - atr14 * 0.8
+lineBtm = arrowY - atr14 * 0.6
+lblY    = lineBtm - atr14 * 0.2
+c_sig   = color.new(color.lime, 0)
+
+if sigE
+    tipE = "SIGNAL — 20SMA Expansion\n" +
+           "── Part A: Relative Strength Delta ──\n" +
+           "  Benchmark: " + indexSymbol + "\n" +
+           "  Delta today=" + str.tostring(deltaAB, "#.######") +
+           "  Yesterday=" + str.tostring(deltaAB[1], "#.######") + "  (rising: YES)\n" +
+           "  Delta MA(" + str.tostring(deltaMaLen) + ")=" + str.tostring(deltaMa, "#.######") +
+           "  ×1.2=" + str.tostring(deltaMa * 1.2, "#.######") + "  (above 1.2×MA: YES)\n" +
+           "  Delta MA trending up (MA today > yesterday): YES\n" +
+           "  4th consecutive green bar kill: NO\n" +
+           "── Part B: SMA Slopes ──\n" +
+           "  20SMA slope=" + str.tostring(slope20Pct, "#.###") + "%  (>0: YES)\n" +
+           "  50SMA slope=" + str.tostring(slope50Pct, "#.###") + "%" +
+           "  min=" + str.tostring(slope50MinPct, "#.##") + "%  (≥min: YES)\n" +
+           "  20-slope > 50-slope: YES\n" +
+           "  Gap today=" + str.tostring(gap, "#.###") +
+           "  Gap yesterday=" + str.tostring(gap_prev, "#.###") + "  (widening: YES)\n" +
+           "  Both slopes rising (not declining): YES\n" +
+           "  50SMA not trending down (sma50=" + str.tostring(sma50, "#.##") + " > prev=" + str.tostring(sma50[1], "#.##") + "): YES"
+    label.new(x=bar_index, y=arrowY,   text="▲",     style=label.style_none, textcolor=c_sig, size=size.huge,   tooltip=tipE)
+    line.new( x1=bar_index, y1=arrowY, x2=bar_index, y2=lineBtm, color=c_sig, width=4)
+    label.new(x=bar_index, y=lblY,     text="20EXP", style=label.style_none, textcolor=c_sig, size=size.normal, tooltip=tipE)
+
+// ════════════════════════════════════════════════════════════════════════════
+// ALERT
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(sigE, title="20SMA Expansion Buy", message="[20EXP] {{ticker}} @ {{close}}")
