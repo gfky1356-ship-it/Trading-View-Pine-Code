@@ -17,8 +17,6 @@ sma50    = ta.sma(close, 50)
 volSma20 = ta.sma(volume, 20)
 atr14    = ta.atr(14)
 
-plot(sma10, "SMA10", color=color.blue, linewidth=1)
-plot(sma20, "SMA20", color=color.red,  linewidth=2)
 
 // ════════════════════════════════════════════════════════════════════════════
 // SIGNAL A — Descending Peak Trendline Break  (yellow ▲ | "BREAK" label)
@@ -30,10 +28,11 @@ a_pullPct = input.float(3.0, "Min pullback after each peak (%)",    minval=0.1, 
 a_wing    = input.int(5,    "Pivot wing bars (each side)",          minval=2,   maxval=15,  group=grpA)
 a_extBars = input.int(10,   "Extend trendline beyond today (bars)", minval=1,   maxval=50,  group=grpA)
 
-float a_topVal1 = na
-int   a_topBar1 = na
-float a_topVal2 = na
-int   a_topBar2 = na
+// Collect all valid pivot highs in lookback window, ordered most-recent first
+var float[] a_pvVals = array.new_float()
+var int[]   a_pvBars = array.new_int()
+array.clear(a_pvVals)
+array.clear(a_pvBars)
 
 for i = a_wing + 1 to a_lbBars - a_wing
     isHigh = true
@@ -53,33 +52,28 @@ for i = a_wing + 1 to a_lbBars - a_wing
                 hasPull := true
                 break
         if hasPull
-            if na(a_topVal1) or high[i] > a_topVal1
-                a_topVal2 := a_topVal1
-                a_topBar2 := a_topBar1
-                a_topVal1 := high[i]
-                a_topBar1 := i
-            else if na(a_topVal2) or high[i] > a_topVal2
-                a_topVal2 := high[i]
-                a_topBar2 := i
+            array.push(a_pvVals, high[i])
+            array.push(a_pvBars, i)
 
-float a_pAVal = na
-int   a_pABar = na
+// Peak B = most recent valid pivot
+// Peak A = nearest older pivot that is strictly higher than B  →  descending pair
 float a_pBVal = na
 int   a_pBBar = na
+float a_pAVal = na
+int   a_pABar = na
 bool  a_valid = false
 
-if not na(a_topVal1) and not na(a_topVal2)
-    if a_topBar1 > a_topBar2
-        a_pAVal := a_topVal1
-        a_pABar := a_topBar1
-        a_pBVal := a_topVal2
-        a_pBBar := a_topBar2
-    else
-        a_pAVal := a_topVal2
-        a_pABar := a_topBar2
-        a_pBVal := a_topVal1
-        a_pBBar := a_topBar1
-    a_valid := a_pBVal < a_pAVal
+if array.size(a_pvBars) >= 2
+    a_pBVal := array.get(a_pvVals, 0)
+    a_pBBar := array.get(a_pvBars, 0)
+    for k = 1 to array.size(a_pvBars) - 1
+        pVal = array.get(a_pvVals, k)
+        pBar = array.get(a_pvBars, k)
+        if pVal > a_pBVal
+            a_pAVal := pVal
+            a_pABar := pBar
+            a_valid := true
+            break
 
 float a_trendNow    = na
 float a_trendFuture = na
@@ -91,7 +85,8 @@ if a_valid
 sigA = a_valid and
        (close > open and (close - open) / open >= a_bodyPct) and
        (not na(a_trendNow) and low < a_trendNow and close > a_trendNow) and
-       hist > 0
+       hist > 0 and
+       close >= a_pBVal * 0.9 and close <= a_pBVal * 1.5
 
 // ════════════════════════════════════════════════════════════════════════════
 // SIGNAL C — MACD Histogram Reverse Above Zero  (lime ▲ | "MACD" label)
@@ -107,7 +102,8 @@ sigC = c_allGreen and c_midSmall and
        macdLine > 0 and
        close > high[1] and close > high[2] and
        c_hasRed and c_notDecline and
-       sma20 >= sma50 * 0.9 and
+       sma10 > sma20 and sma20 >= sma50 and
+       close > sma20 and
        (high + low) / 2 <= sma10 * 1.1
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -120,8 +116,9 @@ d_lowBand  = input.float(2.0,  "Lowest point within SMA20 +/-(%)",        minval
 d_maxBelow = input.int(3,     "Max days close below SMA20 between peaks", minval=0,  maxval=10, group=grpD)
 d_modPct   = input.float(3.0,  "SMA10 max gap above SMA20 (%)",           minval=0.1, step=0.1, group=grpD) / 100
 
-d_pk2Val = ta.highest(high[1], d_lookback - 1)
-d_pk2Bar = 0
+// Find prior peak: most recent bar with the highest high in 1..d_lookback-1 bars ago
+float d_pk2Val = ta.highest(high[1], d_lookback - 1)
+int   d_pk2Bar = 0
 for i = 1 to d_lookback - 1
     if high[i] >= d_pk2Val * 0.9999
         d_pk2Bar := i
@@ -158,6 +155,8 @@ sigD = close > open and
 // ════════════════════════════════════════════════════════════════════════════
 arrowY  = low  - atr14 * 0.8
 lineBtm = arrowY - atr14 * 0.6
+lblY    = lineBtm - atr14 * 0.2
+c_sig   = color.new(color.lime, 0)      // shared lime green
 
 // ── Signal A ──────────────────────────────────────────────────────────────────
 if sigA
@@ -165,19 +164,19 @@ if sigA
            "Peak A (older/higher): " + str.tostring(a_pAVal, "#.##") + " (" + str.tostring(a_pABar) + " bars ago)\n" +
            "Peak B (newer/lower):  " + str.tostring(a_pBVal, "#.##") + " (" + str.tostring(a_pBBar) + " bars ago)\n" +
            "Trendline today=" + str.tostring(a_trendNow, "#.##") + "  close=" + str.tostring(close, "#.##") + "\n" +
-           "Green body=" + str.tostring((close - open) / open * 100, "#.##") + "%  MACD hist=" + str.tostring(hist, "#.####")
+           "Green body=" + str.tostring((close - open) / open * 100, "#.##") + "%  MACD hist=" + str.tostring(hist, "#.####") + "\n" +
+           "Close vs Peak B: " + str.tostring(close / a_pBVal * 100, "#.1") + "% (90–150%)"
     line.new(x1=bar_index - a_pABar, y1=a_pAVal, x2=bar_index + a_extBars, y2=a_trendFuture,
              color=color.new(#ADD8E6, 0), width=3)
-    labelTop = high + atr14 * 1.2
-    label.new(x=bar_index, y=labelTop,    text="BREAK", style=label.style_label_down,
-              color=color.white, textcolor=color.black, size=size.small, tooltip=tipA)
-    label.new(x=bar_index, y=a_trendNow, text="↓",     style=label.style_none,
-              textcolor=color.new(#ADD8E6, 0), size=size.huge)
-    line.new(x1=bar_index, y1=labelTop, x2=bar_index, y2=a_trendNow,
-             color=color.new(#ADD8E6, 0), width=2)
-    label.new(x=bar_index, y=arrowY, text="▲", style=label.style_none,
-              textcolor=color.yellow, size=size.huge, tooltip=tipA)
-    line.new(x1=bar_index, y1=arrowY, x2=bar_index, y2=lineBtm, color=color.yellow, width=4)
+    label.new(x=bar_index - a_pABar, y=a_pAVal, text="",
+              style=label.style_circle, color=color.new(color.yellow, 40), textcolor=color.white, size=size.small,
+              tooltip="Peak A: " + str.tostring(a_pAVal, "#.##") + " (" + str.tostring(a_pABar) + " bars ago)")
+    label.new(x=bar_index - a_pBBar, y=a_pBVal, text="",
+              style=label.style_circle, color=color.new(color.yellow, 40), textcolor=color.white, size=size.small,
+              tooltip="Peak B: " + str.tostring(a_pBVal, "#.##") + " (" + str.tostring(a_pBBar) + " bars ago)")
+    label.new(x=bar_index, y=arrowY,  text="▲",     style=label.style_none, textcolor=c_sig, size=size.huge,  tooltip=tipA)
+    line.new( x1=bar_index, y1=arrowY, x2=bar_index, y2=lineBtm, color=c_sig, width=4)
+    label.new(x=bar_index, y=lblY,    text="BREAK", style=label.style_none, textcolor=c_sig, size=size.normal,  tooltip=tipA)
 
 // ── Signal C ──────────────────────────────────────────────────────────────────
 if sigC
@@ -185,14 +184,10 @@ if sigC
            "3 green histogram bars, middle smallest abs:\n" +
            "  2d ago=" + str.tostring(hist[2], "#.####") + "  yesterday=" + str.tostring(hist[1], "#.####") + "  today=" + str.tostring(hist[0], "#.####") + "\n" +
            "MACD line above zero: " + str.tostring(macdLine, "#.####") + "\n" +
-           "Close above prior 2 highs / red candle in last 4 / not declining >4d: YES\n" +
-           "SMA20=" + str.tostring(sma20, "#.##") + " >= 90% SMA50=" + str.tostring(sma50, "#.##") + ": YES"
-    labelTop = high + atr14 * 1.2
-    label.new(x=bar_index, y=labelTop, text="MACD", style=label.style_label_down,
-              color=color.lime, textcolor=color.black, size=size.small, tooltip=tipC)
-    label.new(x=bar_index, y=arrowY, text="▲", style=label.style_none,
-              textcolor=color.lime, size=size.huge, tooltip=tipC)
-    line.new(x1=bar_index, y1=arrowY, x2=bar_index, y2=lineBtm, color=color.lime, width=4)
+           "SMA10 > SMA20 >= SMA50 | Close > SMA20: YES"
+    label.new(x=bar_index, y=arrowY,  text="▲",    style=label.style_none, textcolor=c_sig, size=size.huge, tooltip=tipC)
+    line.new( x1=bar_index, y1=arrowY, x2=bar_index, y2=lineBtm, color=c_sig, width=4)
+    label.new(x=bar_index, y=lblY,    text="MACD", style=label.style_none, textcolor=c_sig, size=size.normal, tooltip=tipC)
 
 // ── Signal D ──────────────────────────────────────────────────────────────────
 if sigD
@@ -203,14 +198,11 @@ if sigD
            "Low-vol day between peaks: YES  |  Days below SMA20: " + str.tostring(d_belowCnt) + "\n" +
            "SMA10=" + str.tostring(sma10, "#.##") + " moderately above SMA20=" + str.tostring(sma20, "#.##") + "\n" +
            "MACD today=" + str.tostring(macdLine, "#.####") + " > MACD at 2nd peak=" + str.tostring(macdLine[d_pk2Bar], "#.####")
-    labelTop = high + atr14 * 1.2
-    label.new(x=bar_index, y=labelTop, text="2PK", style=label.style_label_down,
-              color=color.orange, textcolor=color.white, size=size.small, tooltip=tipD)
-    label.new(x=bar_index, y=arrowY, text="▲", style=label.style_none,
-              textcolor=color.orange, size=size.huge, tooltip=tipD)
-    line.new(x1=bar_index, y1=arrowY, x2=bar_index, y2=lineBtm, color=color.orange, width=4)
     line.new(x1=bar_index - d_pk2Bar, y1=d_pk2Val, x2=bar_index, y2=high,
              color=color.new(#ADD8E6, 0), width=5, style=line.style_dotted)
+    label.new(x=bar_index, y=arrowY,  text="▲",   style=label.style_none, textcolor=c_sig, size=size.huge, tooltip=tipD)
+    line.new( x1=bar_index, y1=arrowY, x2=bar_index, y2=lineBtm, color=c_sig, width=4)
+    label.new(x=bar_index, y=lblY,    text="2PK", style=label.style_none, textcolor=c_sig, size=size.normal, tooltip=tipD)
 
 // ════════════════════════════════════════════════════════════════════════════
 // ALERTS
