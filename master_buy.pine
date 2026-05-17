@@ -1,5 +1,282 @@
 //@version=6
+indicator("Master Buy Signal", overlay=true, max_labels_c//@version=6
 indicator("Master Buy Signal", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ════════════════════════════════════════════════════════════════════════════
+// SHARED COMPUTATIONS
+// ════════════════════════════════════════════════════════════════════════════
+grpMACD  = "MACD Settings (Shared)"
+mFast    = input.int(12, "Fast Length",   minval=1, group=grpMACD)
+mSlow    = input.int(26, "Slow Length",   minval=1, group=grpMACD)
+mSig     = input.int(9,  "Signal Length", minval=1, group=grpMACD)
+
+[macdLine, signalLine, hist] = ta.macd(close, mFast, mSlow, mSig)
+
+sma10    = ta.sma(close, 10)
+sma20    = ta.sma(close, 20)
+sma50    = ta.sma(close, 50)
+volSma20 = ta.sma(volume, 20)
+atr14    = ta.atr(14)
+
+// ════════════════════════════════════════════════════════════════════════════
+// SIGNAL A — Descending Peak Trendline Break  ("BREAK")
+// ════════════════════════════════════════════════════════════════════════════
+grpA      = "Signal A: Descending Peak Break"
+a_lbBars  = input.int(120,   "Lookback bars (≈ 6 months)",          minval=20,  maxval=300, group=grpA)
+a_bodyPct = input.float(2.0, "Min green body (%)",                   minval=0.1, step=0.1,  group=grpA) / 100
+a_pullPct = input.float(3.0, "Min pullback after each peak (%)",     minval=0.1, step=0.1,  group=grpA) / 100
+a_wing    = input.int(5,     "Pivot wing bars (each side)",          minval=2,   maxval=15,  group=grpA)
+a_extBars = input.int(10,    "Extend trendline beyond today (bars)", minval=1,   maxval=50,  group=grpA)
+
+var float[] a_pvVals = array.new_float()
+var int[]   a_pvBars = array.new_int()
+array.clear(a_pvVals)
+array.clear(a_pvBars)
+
+for i = a_wing + 1 to a_lbBars - a_wing
+    isHigh = true
+    for j = 1 to a_wing
+        if high[i - j] >= high[i]
+            isHigh := false
+            break
+    if isHigh
+        for j = 1 to a_wing
+            if high[i + j] >= high[i]
+                isHigh := false
+                break
+    if isHigh
+        hasPull = false
+        for j = 1 to i - 1
+            if low[j] <= high[i] * (1 - a_pullPct)
+                hasPull := true
+                break
+        if hasPull
+            array.push(a_pvVals, high[i])
+            array.push(a_pvBars, i)
+
+float a_pBVal = na
+int   a_pBBar = na
+float a_pAVal = na
+int   a_pABar = na
+bool  a_valid = false
+
+if array.size(a_pvBars) >= 2
+    a_pBVal := array.get(a_pvVals, 0)
+    a_pBBar := array.get(a_pvBars, 0)
+    for k = 1 to array.size(a_pvBars) - 1
+        pVal = array.get(a_pvVals, k)
+        pBar = array.get(a_pvBars, k)
+        if pVal > a_pBVal
+            a_pAVal := pVal
+            a_pABar := pBar
+            a_valid := true
+            break
+
+float a_trendNow    = na
+float a_trendFuture = na
+if a_valid
+    a_slope        = (a_pBVal - a_pAVal) / float(a_pABar - a_pBBar)
+    a_trendNow    := a_pBVal + a_slope * float(a_pBBar)
+    a_trendFuture := a_trendNow + a_slope * float(a_extBars)
+
+sigA = a_valid and
+       (close > open and (close - open) / open >= a_bodyPct) and
+       (not na(a_trendNow) and low < a_trendNow and close > a_trendNow) and
+       hist > 0 and
+       close >= a_pBVal * 0.9 and close <= a_pBVal * 1.5
+
+// ════════════════════════════════════════════════════════════════════════════
+// SIGNAL C — MACD Histogram Reverse Above Zero  ("MACD")
+// ════════════════════════════════════════════════════════════════════════════
+grpC = "Signal C: MACD Green Peak"
+
+c_allGreen   = hist[0] > 0 and hist[1] > 0 and hist[2] > 0
+c_midSmall   = math.abs(hist[1]) < math.abs(hist[0]) and math.abs(hist[1]) < math.abs(hist[2])
+c_hasRed     = (close < open) or (close[1] < open[1]) or (close[2] < open[2]) or (close[3] < open[3])
+c_notDecline = not (hist[1] < hist[2] and hist[2] < hist[3] and hist[3] < hist[4] and hist[4] < hist[5])
+
+sigC = c_allGreen and c_midSmall and
+       macdLine > 0 and
+       close > high[1] and close > high[2] and
+       c_hasRed and c_notDecline and
+       sma10 > sma20 and sma20 >= sma50 and
+       close > sma20 and
+       (high + low) / 2 <= sma10 * 1.1
+
+// ════════════════════════════════════════════════════════════════════════════
+// SIGNAL D — Double Peak Pullback to SMA20  ("2PK")
+// ════════════════════════════════════════════════════════════════════════════
+grpD       = "Signal D: Double Peak (PB to SMA20)"
+d_lookback = input.int(12,    "Lookback Days",                            minval=5,  maxval=30,  group=grpD)
+d_pk2Pct   = input.float(10.0, "Max % today high above 2nd peak",        minval=0.1, step=0.1,  group=grpD) / 100
+d_lowBand  = input.float(2.0,  "Lowest point within SMA20 +/-(%)",       minval=0.1, step=0.1,  group=grpD) / 100
+d_maxBelow = input.int(3,     "Max days close below SMA20 between peaks", minval=0,  maxval=10, group=grpD)
+d_modPct   = input.float(3.0,  "SMA10 max gap above SMA20 (%)",          minval=0.1, step=0.1,  group=grpD) / 100
+
+float d_pk2Val = ta.highest(high[1], d_lookback - 1)
+int   d_pk2Bar = 0
+for i = 1 to d_lookback - 1
+    if high[i] >= d_pk2Val * 0.9999
+        d_pk2Bar := i
+        break
+
+float d_minLow      = close
+float d_minLowSMA20 = sma20
+int   d_belowCnt    = 0
+bool  d_hasLowVol   = false
+
+if d_pk2Bar >= 2
+    for i = 1 to d_pk2Bar - 1
+        if low[i] < d_minLow
+            d_minLow      := low[i]
+            d_minLowSMA20 := sma20[i]
+        if close[i] < sma20[i]
+            d_belowCnt += 1
+        if volume[i] < volSma20[i]
+            d_hasLowVol := true
+
+d_lowestOk = d_minLow >= d_minLowSMA20 * (1 - d_lowBand) and d_minLow <= d_minLowSMA20 * (1 + d_lowBand)
+
+sigD = close > open and
+       high >= ta.highest(high[1], d_lookback - 1) and
+       high <= d_pk2Val * (1 + d_pk2Pct) and
+       d_lowestOk and d_belowCnt <= d_maxBelow and
+       d_hasLowVol and
+       sma10 > sma20 and sma10 <= sma20 * (1 + d_modPct) and
+       macdLine > macdLine[d_pk2Bar] and
+       d_pk2Bar >= 3
+
+// ════════════════════════════════════════════════════════════════════════════
+// SIGNAL E — 20SMA Expansion + Beat Index  ("20EXP")
+// ════════════════════════════════════════════════════════════════════════════
+grpE          = "Signal E: 20SMA Expansion + Beat Index"
+e_smaLen      = input.int(30,    "Base SMA Period (days)", minval=1,    group=grpE)
+e_deltaMaLen  = input.int(9,     "Delta MA Period",        minval=1,    group=grpE)
+e_slopeLen    = input.int(5,     "Slope Lookback Bars",    minval=1, maxval=50,   group=grpE)
+e_slopeSmooth = input.int(1,     "Slope Smoothing",        minval=1, maxval=20,   group=grpE)
+e_slope50Min  = input.float(-0.05, "50SMA Slope Min %",   minval=-1.0, maxval=0.0, step=0.01, group=grpE)
+
+// Part A: Relative Strength Delta (stock vs index)
+e_isSG       = syminfo.currency == "SGD" or syminfo.prefix == "SGX"
+e_index      = e_isSG ? "TVC:STI" : "SPY"
+e_stockSma   = ta.sma(close, e_smaLen)
+[e_idxClose, e_idxSma] = request.security(e_index, timeframe.period, [close, ta.sma(close, e_smaLen)])
+e_delta      = close / e_stockSma - e_idxClose / e_idxSma
+e_deltaMa    = ta.sma(e_delta, e_deltaMaLen)
+
+e_partA = e_delta > 0 and
+          e_delta > e_delta[1] and
+          e_delta > e_deltaMa * 1.2 and
+          e_deltaMa > e_deltaMa[1] and
+          not (e_delta[1] > 0 and e_delta[2] > 0 and e_delta[3] > 0)
+
+// Part B: 20SMA / 50SMA slope expansion (uses shared sma20, sma50)
+e_sl20 = ta.sma((sma20 - sma20[e_slopeLen]) / sma20[e_slopeLen] * 100, e_slopeSmooth)
+e_sl50 = ta.sma((sma50 - sma50[e_slopeLen]) / sma50[e_slopeLen] * 100, e_slopeSmooth)
+e_gap  = e_sl20 - e_sl50
+
+e_partB = e_sl20 > 0 and e_sl50 >= e_slope50Min and
+          e_sl20 > e_sl50 and
+          e_gap  > e_sl20[1] - e_sl50[1] and
+          e_sl20 > e_sl20[1] and e_sl50 > e_sl50[1] and
+          sma50  > sma50[1]
+
+sigE = e_partA and e_partB
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISUALS
+// ════════════════════════════════════════════════════════════════════════════
+c_sig = color.new(color.lime, 0)
+b_n   = 0   // stack counter — resets each bar, increments per signal drawn
+
+// ── Signal A ──────────────────────────────────────────────────────────────────
+if sigA
+    tipA = "SIGNAL A — Descending Peak Trendline Break\n" +
+           "Peak A (older/higher): " + str.tostring(a_pAVal, "#.##") + " (" + str.tostring(a_pABar) + " bars ago)\n" +
+           "Peak B (newer/lower):  " + str.tostring(a_pBVal, "#.##") + " (" + str.tostring(a_pBBar) + " bars ago)\n" +
+           "Trendline today=" + str.tostring(a_trendNow, "#.##") + "  close=" + str.tostring(close, "#.##") + "\n" +
+           "Green body=" + str.tostring((close - open) / open * 100, "#.##") + "%  MACD hist=" + str.tostring(hist, "#.####") + "\n" +
+           "Close vs Peak B: " + str.tostring(close / a_pBVal * 100, "#.1") + "% (90–150%)"
+    line.new(x1=bar_index - a_pABar, y1=a_pAVal, x2=bar_index + a_extBars, y2=a_trendFuture,
+             color=color.new(#ADD8E6, 0), width=3)
+    label.new(x=bar_index - a_pABar, y=a_pAVal, text="",
+              style=label.style_circle, color=color.new(color.yellow, 40), textcolor=color.white, size=size.small,
+              tooltip="Peak A: " + str.tostring(a_pAVal, "#.##") + " (" + str.tostring(a_pABar) + " bars ago)")
+    label.new(x=bar_index - a_pBBar, y=a_pBVal, text="",
+              style=label.style_circle, color=color.new(color.yellow, 40), textcolor=color.white, size=size.small,
+              tooltip="Peak B: " + str.tostring(a_pBVal, "#.##") + " (" + str.tostring(a_pBBar) + " bars ago)")
+    _ay = low - atr14 * (0.8 + b_n * 1.8)
+    _ly = _ay - atr14 * 0.6
+    _by = _ly - atr14 * 0.2
+    label.new(x=bar_index, y=_ay, text="▲",     style=label.style_none, textcolor=c_sig, size=size.huge,   tooltip=tipA)
+    line.new( x1=bar_index, y1=_ay, x2=bar_index, y2=_ly, color=c_sig, width=4)
+    label.new(x=bar_index, y=_by, text="BREAK", style=label.style_none, textcolor=c_sig, size=size.normal, tooltip=tipA)
+    b_n := b_n + 1
+
+// ── Signal C ──────────────────────────────────────────────────────────────────
+if sigC
+    tipC = "SIGNAL C — MACD Green Peak (Histogram Reverse)\n" +
+           "3 green histogram bars, middle smallest abs:\n" +
+           "  2d ago=" + str.tostring(hist[2], "#.####") + "  yesterday=" + str.tostring(hist[1], "#.####") + "  today=" + str.tostring(hist[0], "#.####") + "\n" +
+           "MACD line above zero: " + str.tostring(macdLine, "#.####") + "\n" +
+           "SMA10 > SMA20 >= SMA50 | Close > SMA20: YES"
+    _ay = low - atr14 * (0.8 + b_n * 1.8)
+    _ly = _ay - atr14 * 0.6
+    _by = _ly - atr14 * 0.2
+    label.new(x=bar_index, y=_ay, text="▲",    style=label.style_none, textcolor=c_sig, size=size.huge,   tooltip=tipC)
+    line.new( x1=bar_index, y1=_ay, x2=bar_index, y2=_ly, color=c_sig, width=4)
+    label.new(x=bar_index, y=_by, text="MACD", style=label.style_none, textcolor=c_sig, size=size.normal, tooltip=tipC)
+    b_n := b_n + 1
+
+// ── Signal D ──────────────────────────────────────────────────────────────────
+if sigD
+    tipD = "SIGNAL D — Double Peak (PB to SMA20)\n" +
+           "Green candle making " + str.tostring(d_lookback) + "-day high: " + str.tostring(high, "#.##") + "\n" +
+           "2nd peak high=" + str.tostring(d_pk2Val, "#.##") + " (" + str.tostring(d_pk2Bar) + " bars ago)\n" +
+           "Lowest between peaks=" + str.tostring(d_minLow, "#.##") + " within ±" + str.tostring(d_lowBand * 100, "#.#") + "% of SMA20: YES\n" +
+           "Low-vol day between peaks: YES  |  Days below SMA20: " + str.tostring(d_belowCnt) + "\n" +
+           "SMA10=" + str.tostring(sma10, "#.##") + " moderately above SMA20=" + str.tostring(sma20, "#.##") + "\n" +
+           "MACD today=" + str.tostring(macdLine, "#.####") + " > MACD at 2nd peak=" + str.tostring(macdLine[d_pk2Bar], "#.####")
+    line.new(x1=bar_index - d_pk2Bar, y1=d_pk2Val, x2=bar_index, y2=high,
+             color=color.new(#ADD8E6, 0), width=5, style=line.style_dotted)
+    _ay = low - atr14 * (0.8 + b_n * 1.8)
+    _ly = _ay - atr14 * 0.6
+    _by = _ly - atr14 * 0.2
+    label.new(x=bar_index, y=_ay, text="▲",   style=label.style_none, textcolor=c_sig, size=size.huge,   tooltip=tipD)
+    line.new( x1=bar_index, y1=_ay, x2=bar_index, y2=_ly, color=c_sig, width=4)
+    label.new(x=bar_index, y=_by, text="2PK", style=label.style_none, textcolor=c_sig, size=size.normal, tooltip=tipD)
+    b_n := b_n + 1
+
+// ── Signal E ──────────────────────────────────────────────────────────────────
+if sigE
+    tipE = "SIGNAL E — 20SMA Expansion + Beat Index\n" +
+           "── Part A: Relative Strength Delta ──\n" +
+           "  Benchmark: " + e_index + "\n" +
+           "  Delta today=" + str.tostring(e_delta, "#.######") + "  yesterday=" + str.tostring(e_delta[1], "#.######") + "  (rising: YES)\n" +
+           "  Delta MA(" + str.tostring(e_deltaMaLen) + ")=" + str.tostring(e_deltaMa, "#.######") +
+           "  ×1.2=" + str.tostring(e_deltaMa * 1.2, "#.######") + "  (above 1.2×MA: YES)\n" +
+           "  MA trending up: YES  |  4th-bar kill: NO\n" +
+           "── Part B: SMA Slopes ──\n" +
+           "  20SMA slope=" + str.tostring(e_sl20, "#.###") + "%  50SMA slope=" + str.tostring(e_sl50, "#.###") + "%\n" +
+           "  Gap today=" + str.tostring(e_gap, "#.###") + "  Gap prev=" + str.tostring(e_sl20[1] - e_sl50[1], "#.###") + "  (widening: YES)\n" +
+           "  Both slopes rising: YES  |  50SMA not down: YES"
+    _ay = low - atr14 * (0.8 + b_n * 1.8)
+    _ly = _ay - atr14 * 0.6
+    _by = _ly - atr14 * 0.2
+    label.new(x=bar_index, y=_ay,  text="▲",     style=label.style_none, textcolor=c_sig, size=size.huge,   tooltip=tipE)
+    line.new( x1=bar_index, y1=_ay, x2=bar_index, y2=_ly, color=c_sig, width=4)
+    label.new(x=bar_index, y=_by,  text="20EXP", style=label.style_none, textcolor=c_sig, size=size.normal, tooltip=tipE)
+    b_n := b_n + 1
+
+// ════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(sigA, title="A: Descending Peak Break",    message="[BREAK] {{ticker}} @ {{close}}")
+alertcondition(sigC, title="C: MACD Green Peak",          message="[MACD] {{ticker}} @ {{close}}")
+alertcondition(sigD, title="D: Double Peak",              message="[2PK] {{ticker}} @ {{close}}")
+alertcondition(sigE, title="E: 20SMA Expansion+BeatIdx",  message="[20EXP] {{ticker}} @ {{close}}")
+alertcondition(sigA or sigC or sigD or sigE, title="Any Buy Signal", message="[BUY] {{ticker}} @ {{close}}")
+ount=500, max_lines_count=500)
 
 // ════════════════════════════════════════════════════════════════════════════
 // SHARED COMPUTATIONS
