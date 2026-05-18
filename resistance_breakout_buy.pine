@@ -1,0 +1,74 @@
+//@version=6
+indicator("Resistance Breakout Buy", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ── Inputs ────────────────────────────────────────────────────────────
+int   lenFast  = input.int  (10,   "Fast SMA",                   minval=1)
+int   lenMid   = input.int  (20,   "Mid SMA",                    minval=1)
+int   lenSlow  = input.int  (50,   "Slow SMA",                   minval=1)
+int   lb       = input.int  (10,   "Resistance lookback (bars)",  minval=3)
+float clustPct = input.float(1.0,  "Cluster tolerance %",        minval=0.1, step=0.1) / 100
+float boMin    = input.float(2.0,  "Breakout min %",             minval=0.1, step=0.5) / 100
+float boMax    = input.float(10.0, "Breakout max %",             minval=0.5, step=0.5) / 100
+
+// ── SMAs ──────────────────────────────────────────────────────────────
+float sma10 = ta.sma(close, lenFast)
+float sma20 = ta.sma(close, lenMid)
+float sma50 = ta.sma(close, lenSlow)
+
+// ── Resistance + pivot scan (runs on every bar) ───────────────────────
+float resLine = ta.highest(high[1], lb)
+
+// Single loop: count cluster touches AND find leftmost pivot
+int clustCnt  = 0
+int leftmostI = 0
+for int i = 1 to lb
+    if high[i] >= resLine * (1.0 - clustPct)
+        clustCnt += 1
+        if i > leftmostI
+            leftmostI := i
+
+// ── Signal conditions ─────────────────────────────────────────────────
+bool c1_trend    = sma10 > sma20 and sma20 > sma50
+bool c2_candle   = close > open and open > sma20
+bool c3_topClose = close > ta.highest(close[1], lb)
+bool c4_cluster  = clustCnt >= 2
+bool c5_breakout = close >= resLine * (1.0 + boMin) and
+                   close <= resLine * (1.0 + boMax)
+bool c6_gap      = leftmostI >= 3   // pivot must be ≥3 bars before BO candle
+
+bool signal = c1_trend and c2_candle and c3_topClose and c4_cluster and c5_breakout and c6_gap
+
+// ── Drawings — only on confirmed (closed) bars to prevent zoom-fly ────
+if signal and barstate.isconfirmed
+    // Resistance line: left anchor = leftmost pivot, right anchor = BO bar
+    line.new(bar_index - leftmostI, resLine, bar_index, resLine,
+             color = color.new(color.red, 0),
+             width = 2,
+             style = line.style_dashed)
+
+    // Price label at the right end of the line
+    label.new(bar_index, resLine,
+              text      = str.tostring(resLine, "#.##"),
+              style     = label.style_label_left,
+              color     = color.new(color.red, 70),
+              textcolor = color.white,
+              size      = size.small)
+
+    // Single small yellow circle at the leftmost pivot only
+    label.new(bar_index - leftmostI, high[leftmostI],
+              text  = "",
+              style = label.style_circle,
+              color = color.yellow,
+              size  = size.tiny)
+
+// ── Plotshape and bgcolor — handle live bar correctly on their own ─────
+plotshape(signal, "Breakout Buy", shape.triangleup, location.belowbar,
+          color = color.new(color.lime, 0),
+          size  = size.normal,
+          text  = "BO BUY")
+
+plot(sma10, "SMA 10", color.new(color.blue,   0), linewidth=1)
+plot(sma20, "SMA 20", color.new(color.orange, 0), linewidth=1)
+plot(sma50, "SMA 50", color.new(color.red,    0), linewidth=1)
+
+bgcolor(signal ? color.new(color.green, 88) : na, title="Signal background")
