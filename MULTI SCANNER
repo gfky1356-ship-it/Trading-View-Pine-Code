@@ -1,0 +1,337 @@
+//@version=6
+indicator("Master Signal (EX + MS + AM)", overlay=true, max_labels_count=500)
+
+// =====================================================================
+// SIGNAL MAP
+// EX  全息极值反转矩阵        BUY EX-1~EX-4 / SELL EX-S1~EX-S4
+// MS  Master Screener PRO     BUY MS-1~MS-10 / SELL MS-Mom, MS-MA
+// AM  Annual Macro            BUY AM-11~AM-13
+// =====================================================================
+
+// =====================================================================
+// 1. INPUTS
+// =====================================================================
+rsi_len              = input.int(14,    title="RSI Length",                group="MS-1 Parameters")
+rsi_os_level         = input.int(40,    title="MS-1: RSI Oversold Level",  group="MS-1 Parameters")
+low_tol_pct          = input.float(0.5, title="MS-1: Low Tolerance %",     step=0.1, group="MS-1 Parameters")
+roc50_tolerance      = input.float(-0.2,title="50SMA ROC Tolerance %",     step=0.1, group="MS-2 / MS-10 Parameters")
+s11_breakout_premium = input.float(2.0, title="AM-11: Breakout Premium %", step=0.1, group="AM-11 Parameters")
+
+// =====================================================================
+// 2. CORE INDICATORS
+// =====================================================================
+sma5   = ta.sma(close, 5)
+sma10  = ta.sma(close, 10)
+sma20  = ta.sma(close, 20)
+sma50  = ta.sma(close, 50)
+sma200 = ta.sma(close, 200)
+ema50  = ta.ema(close, 50)
+
+vol_sma = ta.sma(volume, 20)
+rel_vol = volume / vol_sma
+
+[macdLine, signalLine, histLine] = ta.macd(close, 12, 26, 9)
+[_vm, _vs, vol_hist]             = ta.macd(volume, 12, 26, 9)
+
+rsi_val = ta.rsi(close, rsi_len)
+rsi_sma = ta.sma(rsi_val, 14)
+
+atr14        = ta.atr(14)
+safe_atr     = atr14 == 0 ? 1 : atr14
+sma50_angle  = math.atan((sma50 - sma50[1]) / safe_atr) * (180 / math.pi)
+sma20_angle  = math.atan((sma20 - sma20[1]) / safe_atr) * (180 / math.pi)
+candle_angle = math.atan((close - close[1]) / safe_atr) * (180 / math.pi)
+
+upper_wick = high - math.max(open, close)
+lower_wick = math.min(open, close) - low
+body       = math.abs(close - open)
+
+is_green     = close > open
+is_red       = close < open
+is_not_green = close <= open
+isNewHigh    = high > high[1]
+isNewLow     = low < low[1]
+daily_chg    = ((close - close[1]) / close[1]) * 100
+
+isMomentumAcceleratingUp   = (sma10 - sma20) >= (sma20 - sma50)
+isMomentumAcceleratingDown = (sma20 - sma10) >= (sma50 - sma20)
+
+is_5d_low        = low == ta.lowest(low, 5)
+pullback_5d_cond = is_5d_low[1] or is_5d_low[2]
+
+roc_sma10 = (sma10 - sma10[1]) / sma10[1] * 100
+roc_sma20 = (sma20 - sma20[1]) / sma20[1] * 100
+roc_sma50 = (sma50 - sma50[1]) / sma50[1] * 100
+roc50_ok  = roc_sma50 >= roc50_tolerance
+
+// =====================================================================
+// 3. EX BUY SIGNALS
+// =====================================================================
+
+// EX-1: 极致恐慌探底
+ex1_delta  = sma10 - low
+ex1_base   = (close < sma10) and (sma10 < sma20) and (sma20 < sma50)
+ex1_candle = isNewLow and (ex1_delta > ex1_delta[1]) and (open < close[1])
+ex1_shape  = is_red and (lower_wick > body * 0.6) and (low < sma10 * 0.85)
+buyEX1     = ex1_base and ex1_candle and ex1_shape and isMomentumAcceleratingDown
+
+// EX-2: 标准低位乖离抄底
+ex2_base  = (close < sma10) and (sma10 < sma20)
+ex2_shape = isNewLow and (low < sma10 * 0.85) and (lower_wick > body * 0.6)
+buyEX2    = ex2_base and ex2_shape and isMomentumAcceleratingDown
+
+// EX-3: 低位爆量吸筹
+ex3_trend  = (close < sma10) and (sma10 < sma20)
+ex3_vol    = (volume > vol_sma * 1.02) and (volume[1] > vol_sma[1])
+ex3_price  = isNewLow and ((math.abs((close - close[1]) / close[1]) * 100) < 2)
+ex3_ext    = (close < sma10 * 0.97) and (ta.roc(close, 1) < ta.roc(sma10, 1))
+ex3_ma     = (math.abs(sma10 - sma20) / sma20) <= 0.05
+ex3_roc    = ta.roc(low, 1) <= ta.roc(sma10, 1)
+ex3_green  = (close > open and close > close[1]) or (close[1] > open[1] and close[1] > close[2]) or (close[2] > open[2] and close[2] > close[3]) or (close[3] > open[3] and close[3] > close[4])
+buyEX3     = ex3_trend and ex3_vol and ex3_price and ex3_ext and ex3_ma and ex3_roc and ex3_green and isMomentumAcceleratingDown
+
+// EX-4: 弱势区间强势反包
+ex4_macd  = (macdLine < 0) and (macdLine > signalLine)
+ex4_cross = ta.crossover(close, sma20) or (close[1] < sma20[1] and close > sma20)
+ex4_range = (close < sma20 * 1.02) and (sma20 >= sma20[1])
+buyEX4    = ex4_macd and ex4_cross and ex4_range and isMomentumAcceleratingDown
+
+// =====================================================================
+// 4. EX SELL SIGNALS
+// =====================================================================
+
+// EX-S1: 极致偏离抛压
+exs1_delta  = high - sma10
+exs1_base   = (close > sma10) and (sma10 > sma20) and (sma20 > sma50)
+exs1_candle = isNewHigh and (exs1_delta > exs1_delta[1]) and (open > close[1])
+exs1_shape  = is_green and (upper_wick > body * 0.6) and (high > sma10 * 1.15)
+sellEX1     = exs1_base and exs1_candle and exs1_shape and isMomentumAcceleratingUp
+
+// EX-S2: 标准高位抛压
+exs2_base  = (close > sma10) and (sma10 > sma20)
+exs2_shape = isNewHigh and (high > sma10 * 1.15) and (upper_wick > body * 0.6)
+sellEX2    = exs2_base and exs2_shape and isMomentumAcceleratingUp
+
+// EX-S3: 高位放量滞涨
+exs3_base  = (close > sma10) and (sma10 > sma20)
+exs3_vol   = isNewHigh and (volume > vol_sma * 1.02)
+exs3_stall = ((math.abs((close - close[1]) / close[1]) * 100) < 2) and (close > sma10 * 1.03)
+exs3_roc   = ta.roc(close, 1) > ta.roc(sma10, 1)
+sellEX3    = exs3_base and exs3_vol and exs3_stall and exs3_roc and isMomentumAcceleratingUp
+
+// EX-S4: 强势区间破位
+exs4_macd  = (macdLine > 0) and (macdLine < signalLine)
+exs4_break = (close < sma20) and (close > sma20 * 0.98)
+sellEX4    = exs4_macd and exs4_break and isMomentumAcceleratingUp
+
+// =====================================================================
+// 5. MS BUY SIGNALS
+// =====================================================================
+
+// MS-1: Momentum Rebound
+ms1_trend  = (close < sma10) and (sma10 < sma20)
+ms1_candle = (rel_vol > 1.5) or (is_green and upper_wick < body * 0.5)
+ms1_rsi    = (rsi_val < rsi_os_level) and (math.abs(rsi_val - rsi_sma) <= 9)
+ms1_macd   = (histLine > histLine[1]) and (histLine >= 0)
+ms1_price  = (open - open[1]) - (close - close[1]) < 0
+ms1_low    = low <= low[1] * (1 + low_tol_pct / 100)
+buyMS1     = ms1_trend and ms1_price and ms1_macd and ms1_candle and ms1_rsi and ms1_low
+
+// MS-2: SMA Momentum Accelerator
+ms2_ma    = (sma10 > sma10[1]) and (sma20 > sma20[1]) and roc50_ok
+ms2_roc   = (roc_sma10 > roc_sma20) and (roc_sma20 > roc_sma50)
+ms2_ema   = ema50 > ema50[5]
+ms2_cand  = is_green and (high == ta.highest(high, 5))
+ms2_raw   = ms2_ma and ms2_roc and ms2_ema and ms2_cand and pullback_5d_cond
+buyMS2    = ms2_raw and not ms2_raw[1]
+
+// MS-3: 20SMA Bounce
+ms3_trend  = (sma20 > sma50) and (sma50 >= sma50[1])
+ms3_setup  = (close[1] <= sma20[1] * 1.01) and (close[1] >= sma50[1])
+ms3_candle = (close > sma20) and is_green and (close > open[1]) and (upper_wick <= body) and (close > sma10 * 0.9)
+ms3_vol    = (rel_vol > 1.1) and (vol_hist >= vol_hist[1])
+ms3_rsi    = rsi_sma >= rsi_sma[3]
+ms3_clean  = not (close[1] < sma20[1] and close[2] < sma20[2] and close[3] < sma20[3] and close[4] < sma20[4])
+ms3_expl   = (daily_chg <= 5) or (close > sma10)
+buyMS3     = ms3_trend and ms3_setup and ms3_candle and ms3_vol and ms3_rsi and ms3_clean and ms3_expl
+
+// MS-4: MA Cross Breakout
+ms4_flat   = (sma20_angle >= 0 and sma20_angle <= 15) and (sma50_angle >= 0 and sma50_angle <= 10)
+ms4_gap    = (math.abs(sma20 - sma50) / sma50) * 100
+ms4_below  = (sma20 < sma50) and (ms4_gap <= 1.0) and (open < sma50)
+ms4_above  = (sma20 >= sma50) and (ms4_gap <= 2.0) and (close > sma20) and (open < sma20 * 1.01)
+ms4_sq     = ms4_below or ms4_above
+ms4_vol    = (rel_vol > 1.2) and (volume > volume[1])
+ms4_rsi    = rsi_sma >= rsi_sma[2] * 1.01
+ms4_hi5    = high == ta.highest(high, 5)
+ms4_sma50  = sma50 >= sma50[5] * 0.99
+buyMS4     = ms4_flat and ms4_sq and ms4_vol and is_green and ms4_rsi and ms4_hi5 and ms4_sma50
+
+// MS-5: Resistance Breakout
+ms5_break  = close > ta.highest(high, 40)[1]
+ms5_candle = (upper_wick <= body * 0.3) and is_green
+ms5_vol    = rel_vol > 2.0
+ms5_trend  = (sma10 > sma20) and (sma20 > sma50)
+ms5_macd   = (histLine > 0) and (histLine > histLine[1])
+ms5_angle  = candle_angle <= 50
+buyMS5     = ms5_break and ms5_candle and ms5_vol and ms5_trend and ms5_macd and ms5_angle
+
+// MS-7: Floated Breakout
+ms7_trend  = (sma10 > sma20) and (sma20 > sma50) and (sma50 >= sma50[1])
+ms7_avg    = (sma10 + sma20 + sma50) / 3
+ms7_sq10   = math.abs(sma10 - ms7_avg) / ms7_avg <= 0.02
+ms7_sq20   = math.abs(sma20 - ms7_avg) / ms7_avg <= 0.02
+ms7_sq50   = math.abs(sma50 - ms7_avg) / ms7_avg <= 0.02
+ms7_float  = is_green and (low > sma20)
+ms7_reds   = math.sum(is_red ? 1 : 0, 7)[1] >= 3
+ms7_high   = close > ta.highest(high, 7)[1]
+ms7_mom    = sma20 >= sma20[5] * 1.03
+buyMS7     = ms7_trend and ms7_sq10 and ms7_sq20 and ms7_sq50 and ms7_float and ms7_reds and ms7_high and ms7_mom
+
+// MS-9: MA Expansion
+ms9_g2050  = sma20 - sma50
+ms9_g50200 = sma50 - sma200
+ms9_today  = (ms9_g2050 > ms9_g2050[1]) and (ms9_g50200 > ms9_g50200[1])
+ms9_yest   = (ms9_g2050[1] > ms9_g2050[2]) and (ms9_g50200[1] > ms9_g50200[2])
+buyMS9     = ms9_today and not ms9_yest and pullback_5d_cond
+
+// MS-10: SMA Acceleration
+acc10   = roc_sma10 - roc_sma10[1]
+acc20   = roc_sma20 - roc_sma20[1]
+acc50   = roc_sma50 - roc_sma50[1]
+ms10_acc = (acc10 > acc20) and (acc20 > acc50)
+ms10_up  = (acc10 > 0) and (roc_sma10 > 0)
+buyMS10  = ms10_acc and not ms10_acc[1] and ms10_up and roc50_ok and pullback_5d_cond
+
+// =====================================================================
+// 6. MS SELL SIGNALS
+// =====================================================================
+ms_weak    = (open - open[1]) - (close - close[1]) > 0
+sellMS_Mom = (close > sma10) and ms_weak and (histLine < histLine[1]) and (volume > vol_sma) and (rsi_sma < rsi_sma[1]) and is_not_green
+
+ms_g2050   = sma20 - sma50
+ms_g50200  = sma50 - sma200
+ms_bull    = (sma20 > sma50) and (sma50 > sma200)
+ms_narrow  = (ms_g2050 < ms_g2050[1]) and (ms_g50200 < ms_g50200[1])
+ms_raw_ma  = ms_bull and ms_narrow
+sellMS_MA  = ms_raw_ma and not ms_raw_ma[1] and is_not_green
+
+// =====================================================================
+// 7. AM BUY SIGNALS
+// =====================================================================
+
+// AM-11: 30-Day 2nd High
+get_30d_second_high() =>
+    float h1     = ta.highest(high[1], 30)
+    float s_high = 0.0
+    int   s_idx  = 1
+    for i = 1 to 30
+        if high[i] > s_high and high[i] < h1
+            s_high := high[i]
+            s_idx  := i
+    [s_high, s_idx]
+
+[am11_2nd, am11_idx]  = get_30d_second_high()
+am11_peak    = (am11_idx < 30 and am11_idx > 1) ? (high[am11_idx] > high[am11_idx + 1] and high[am11_idx] > high[am11_idx - 1]) : false
+am11_low_aft = ta.lowest(low, math.max(1, am11_idx - 1))
+am11_base    = is_green and (close > am11_2nd) and (close <= am11_2nd * (1 + s11_breakout_premium / 100))
+buyAM11      = am11_base and am11_peak and (am11_low_aft < low[am11_idx])
+
+// AM-12: 180-Day High Breakout
+am12_prev = ta.highest(high[1], 180)
+am12_hb   = ta.highestbars(high[1], 180)
+am12_off  = na(am12_hb) ? 1 : int(math.abs(am12_hb)) + 1
+am12_hit  = is_green and (high > am12_prev) and (bar_index > 180)
+am12_str  = (am12_prev >= high * 0.95) and (am12_off >= 10)
+am12_wick = upper_wick <= body * 0.10
+am12_ma   = (close > sma20) and (sma20 > sma50)
+buyAM12   = am12_hit and am12_str and am12_wick and am12_ma
+
+// AM-13: 250-Day Yearly High Breakout
+am13_prev = ta.highest(high[1], 250)
+am13_hb   = ta.highestbars(high[1], 250)
+am13_off  = na(am13_hb) ? 1 : int(math.abs(am13_hb)) + 1
+am13_hit  = is_green and (high > am13_prev) and (bar_index > 250)
+am13_str  = (am13_prev >= high * 0.95) and (am13_off >= 10)
+am13_wick = upper_wick <= body * 0.10
+am13_ma   = (close > sma20) and (sma20 > sma50)
+buyAM13   = am13_hit and am13_str and am13_wick and am13_ma
+
+// =====================================================================
+// 8. LABELS
+// =====================================================================
+
+// EX BUY
+if buyEX1
+    label.new(bar_index, na, text="BUY\n(EX-1)", yloc=yloc.belowbar, color=color.navy, textcolor=color.white, style=label.style_triangleup, size=size.small, tooltip="【EX-1】极致恐慌探底\n偏离>15%+新低阴线+长下影+跳空低开\n均线加速发散向下")
+if buyEX2
+    label.new(bar_index, na, text="BUY\n(EX-2)", yloc=yloc.belowbar, color=color.navy, textcolor=color.white, style=label.style_triangleup, size=size.small, tooltip="【EX-2】标准低位乖离抄底\nclose<10SMA 10SMA<20SMA\n低点偏离>15%+长下影")
+if buyEX3
+    label.new(bar_index, na, text="BUY\n(EX-3)", yloc=yloc.belowbar, color=color.navy, textcolor=color.white, style=label.style_triangleup, size=size.small, tooltip="【EX-3】低位爆量吸筹\n双日放量+均线差<5%\n近4日含真阳线+价格停滞")
+if buyEX4
+    label.new(bar_index, na, text="BUY\n(EX-4)", yloc=yloc.belowbar, color=color.navy, textcolor=color.white, style=label.style_triangleup, size=size.small, tooltip="【EX-4】弱势区间强势反包\nMACD金叉(负值区)+突破20SMA\n20SMA拐头向上")
+
+// MS BUY
+if buyMS1
+    label.new(bar_index, na, text="BUY\n(MS-1)", yloc=yloc.belowbar, color=color.orange, textcolor=color.white, style=label.style_triangleup, size=size.small, tooltip="【MS-1】Momentum Rebound\n空头排列中RSI超卖\nMACD Histogram >=0且上升")
+if buyMS2
+    label.new(bar_index, na, text="MS-2", yloc=yloc.belowbar, color=color.yellow, textcolor=color.black, style=label.style_circle, size=size.small, tooltip="【MS-2】SMA Momentum Accelerator\n10SMA速率>20SMA速率>50SMA速率\n50EMA>5天前50EMA 阳线创5日新高+洗盘确认")
+if buyMS3
+    label.new(bar_index, na, text="BUY\n(MS-3)", yloc=yloc.belowbar, color=color.orange, textcolor=color.white, style=label.style_triangleup, size=size.small, tooltip="【MS-3】20SMA Bounce\n支撑区放量反包\n量能MACD增强+RSI SMA无下滑")
+if buyMS4
+    label.new(bar_index, na, text="BUY\n(MS-4)", yloc=yloc.belowbar, color=color.lime, textcolor=color.black, style=label.style_triangleup, size=size.small, tooltip="【MS-4】MA Cross Breakout\n20SMA角度0~15度 50SMA角度0~10度\n阳线放量上穿")
+if buyMS5
+    label.new(bar_index, na, text="BUY\n(MS-5)", yloc=yloc.belowbar, color=color.fuchsia, textcolor=color.white, style=label.style_triangleup, size=size.small, tooltip="【MS-5】Resistance Breakout\n突破40天强阻力 Rel Vol > 2.0\n均线多头排列")
+if buyMS7
+    label.new(bar_index, na, text="BUY\n(MS-7)", yloc=yloc.belowbar, color=color.aqua, textcolor=color.black, style=label.style_triangleup, size=size.small, tooltip="【MS-7】Floated Breakout\n10/20/50 SMA差距不超2%\n最低价悬浮于20SMA之上 过去7天至少3根阴线蓄势")
+if buyMS9
+    label.new(bar_index, na, text="BUY\n(MS-9)", yloc=yloc.belowbar, color=color.purple, textcolor=color.white, style=label.style_triangleup, size=size.small, tooltip="【MS-9】MA Expansion\n20SMA与50SMA差值首次扩大\n50SMA与200SMA差值同步扩大+洗盘确认")
+if buyMS10
+    label.new(bar_index, na, text="BUY\n(MS-10)", yloc=yloc.belowbar, color=color.teal, textcolor=color.white, style=label.style_triangleup, size=size.small, tooltip="【MS-10】SMA Acceleration\n10SMA加速度>20SMA加速度>50SMA加速度\n10SMA速率>0+洗盘确认 仅首次满足时触发")
+
+// AM BUY
+if buyAM11
+    label.new(bar_index, na, text="BUY\n(AM-11)", yloc=yloc.belowbar, color=color.blue, textcolor=color.white, style=label.style_triangleup, size=size.small, tooltip="【AM-11】30-Day 2nd High Breakout\n突破30天内第二高点\n前高形成标准结构顶+回落确认")
+    line.new(x1=bar_index - am11_idx, y1=am11_2nd, x2=bar_index, y2=am11_2nd, color=color.green, width=2, style=line.style_dotted)
+if buyAM12
+    label.new(bar_index, na, text="BUY\n(AM-12)", yloc=yloc.belowbar, color=color.maroon, textcolor=color.white, style=label.style_triangleup, size=size.small, tooltip="【AM-12】180-Day High Breakout\n突破180天前高\n极强阳线+均线多头")
+    line.new(x1=bar_index - am12_off, y1=am12_prev, x2=bar_index, y2=am12_prev, color=color.maroon, width=2, style=line.style_dashed)
+if buyAM13
+    label.new(bar_index, na, text="BUY\n(AM-13)", yloc=yloc.belowbar, color=#e65c00, textcolor=color.white, style=label.style_triangleup, size=size.small, tooltip="【AM-13】250-Day Yearly High Breakout\n突破年度最高点\n极强阳线+均线多头排列")
+    line.new(x1=bar_index - am13_off, y1=am13_prev, x2=bar_index, y2=am13_prev, color=#e65c00, width=2, style=line.style_dashed)
+
+// EX SELL
+ex_sell_any = sellEX1 or sellEX2 or sellEX3 or sellEX4
+if ex_sell_any
+    ex_txt = "SELL\n" + (sellEX1 ? "EX-S1 " : "") + (sellEX2 ? "EX-S2 " : "") + (sellEX3 ? "EX-S3 " : "") + (sellEX4 ? "EX-S4" : "")
+    ex_tip = (sellEX1 ? "【EX-S1】极致偏离抛压: 完整多头+偏离>15%+新高阳线+长上影\n" : "") + (sellEX2 ? "【EX-S2】标准高位抛压: 偏离>15%+长上影+新高\n" : "") + (sellEX3 ? "【EX-S3】高位放量滞涨: 偏离>3%+放量+价格停滞\n" : "") + (sellEX4 ? "【EX-S4】强势区间破位: MACD死叉+微跌破20SMA\n" : "")
+    label.new(bar_index, na, text=ex_txt, yloc=yloc.abovebar, color=color.new(#000000, 0), textcolor=color.white, style=label.style_triangledown, size=size.small, tooltip=ex_tip)
+
+// MS SELL
+ms_sell_any = sellMS_Mom or sellMS_MA
+if ms_sell_any
+    ms_txt = "SELL\n" + (sellMS_Mom ? "MS-Mom " : "") + (sellMS_MA ? "MS-MA" : "")
+    ms_tip = (sellMS_Mom ? "【MS-Sell Mom】动能衰竭: 日内走弱+MACD下滑+放量+非阳线\n" : "") + (sellMS_MA ? "【MS-Sell MA】均线收敛: 20>50>200SMA差值缩小+首日非阳线\n" : "")
+    label.new(bar_index, na, text=ms_txt, yloc=yloc.abovebar, color=color.red, textcolor=color.white, style=label.style_triangledown, size=size.tiny, tooltip=ms_tip)
+
+// =====================================================================
+// 9. SMA PLOTS
+// =====================================================================
+plot(sma5,   color=color.new(color.green,  30), title="5 SMA")
+plot(sma10,  color=color.new(color.blue,   30), title="10 SMA")
+plot(sma20,  color=color.new(color.orange, 30), title="20 SMA")
+plot(sma50,  color=color.new(color.purple,  0), title="50 SMA",  linewidth=2)
+plot(sma200, color=color.new(color.white,   0), title="200 SMA", linewidth=2)
+
+// =====================================================================
+// 10. ALERTS
+// =====================================================================
+allBuy  = buyEX1 or buyEX2 or buyEX3 or buyEX4 or buyMS1 or buyMS2 or buyMS3 or buyMS4 or buyMS5 or buyMS7 or buyMS9 or buyMS10 or buyAM11 or buyAM12 or buyAM13
+allSell = sellEX1 or sellEX2 or sellEX3 or sellEX4 or sellMS_Mom or sellMS_MA
+alertcondition(allBuy,  title="Master Signal BUY",  message="Master Signal 买入信号触发！")
+alertcondition(allSell, title="Master Signal SELL", message="Master Signal 卖出信号触发！")
+alertcondition(buyEX1 or buyEX2 or buyEX3 or buyEX4,           title="EX BUY",  message="EX 极值反转买入！")
+alertcondition(sellEX1 or sellEX2 or sellEX3 or sellEX4,       title="EX SELL", message="EX 极值反转卖出！")
+alertcondition(buyMS1 or buyMS2 or buyMS3 or buyMS4 or buyMS5 or buyMS7 or buyMS9 or buyMS10, title="MS BUY", message="MS Master Screener 买入！")
+alertcondition(buyAM11 or buyAM12 or buyAM13,                   title="AM BUY",  message="AM Annual Macro 突破！")
+
